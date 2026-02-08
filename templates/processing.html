@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+{% block title %}Processing...{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-md-6 text-center py-5">
+        <div class="spinner-border text-gold mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+        <h3>Running Analysis</h3>
+        <p class="text-muted" id="statusText">Initializing...</p>
+        <div class="progress mt-3" style="height: 6px;">
+            <div class="progress-bar bg-gold" id="progressBar" style="width: 0%"></div>
+        </div>
+    </div>
+</div>
+<script>
+(function() {
+    const jobId = "{{ job_id }}";
+    const steps = [
+        { pct: 10, text: "Validating inputs..." },
+        { pct: 30, text: "Researching market data..." },
+        { pct: 50, text: "Building financial model..." },
+        { pct: 70, text: "Generating Excel workbook..." },
+        { pct: 85, text: "Generating investment memo..." },
+        { pct: 95, text: "Finalizing results..." },
+    ];
+    let step = 0;
+    const interval = setInterval(() => {
+        if (step < steps.length) {
+            document.getElementById('statusText').textContent = steps[step].text;
+            document.getElementById('progressBar').style.width = steps[step].pct + '%';
+            step++;
+        }
+    }, 1500);
+
+    function pollStatus() {
+        fetch('/api/status/' + jobId)
+            .then(r => r.json())
+            .then(data => {
+                if (data.status === 'complete') {
+                    clearInterval(interval);
+                    document.getElementById('progressBar').style.width = '100%';
+                    document.getElementById('statusText').textContent = 'Complete! Redirecting...';
+                    setTimeout(() => { window.location.href = '/results/' + jobId; }, 500);
+                } else if (data.status === 'error') {
+                    clearInterval(interval);
+                    document.getElementById('statusText').textContent = 'Error: ' + (data.message || 'Unknown error');
+                    document.getElementById('progressBar').classList.replace('bg-gold', 'bg-danger');
+                } else {
+                    setTimeout(pollStatus, 2000);
+                }
+            })
+            .catch(() => setTimeout(pollStatus, 3000));
+    }
+    setTimeout(pollStatus, 2000);
+})();
+</script>
+{% endblock %}

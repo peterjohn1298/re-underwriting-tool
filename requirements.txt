@@ -1,0 +1,6 @@
+flask==3.1.0
+openpyxl==3.1.5
+python-docx==1.1.2
+requests==2.32.3
+beautifulsoup4==4.12.3
+numpy-financial==1.0.0

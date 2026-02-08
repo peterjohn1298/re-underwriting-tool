@@ -1,0 +1,329 @@
+{% extends "base.html" %}
+{% block title %}RE Underwriting — {{ results.inputs.derived.property_name }}{% endblock %}
+{% block content %}
+{% set deal = results.inputs.deal %}
+{% set derived = results.inputs.derived %}
+{% set m = results.metrics %}
+{% set su = results.sources_uses %}
+{% set rev = results.reversion %}
+
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <div>
+                <h2 class="text-gold mb-0"><i class="bi bi-graph-up-arrow"></i> {{ derived.property_name }}</h2>
+                <small class="text-muted">{{ deal.property_type }} &bull; {{ deal.address }} &bull; Built {{ deal.year_built }}</small>
+            </div>
+            <a href="/" class="btn btn-outline-light btn-sm"><i class="bi bi-plus-lg"></i> New Analysis</a>
+        </div>
+
+        <!-- Recommendation Banner -->
+        {% set irr = m.levered_irr %}
+        {% if irr is not none %}
+        <div class="alert {% if irr >= 0.12 %}alert-success{% elif irr >= 0.08 %}alert-warning{% else %}alert-danger{% endif %} d-flex align-items-center mb-4">
+            <i class="bi {% if irr >= 0.12 %}bi-check-circle-fill{% else %}bi-exclamation-triangle-fill{% endif %} me-2 fs-4"></i>
+            <div>
+                <strong>Recommendation: {% if irr >= 0.12 %}BUY{% elif irr >= 0.08 %}HOLD / CONDITIONAL{% else %}PASS{% endif %}</strong> &mdash;
+                {{ "%.1f"|format(irr * 100) }}% levered IRR over {{ deal.hold_period_years }}-year hold
+                {% if derived.rent_premium_potential > 0 %}
+                with ${{ derived.rent_premium_potential|int }}/unit rent upside potential
+                {% endif %}
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- Deal Snapshot -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Price</small>
+                    <strong>${{ "{:,.0f}".format(deal.purchase_price / 1000000) }}M</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Units</small>
+                    <strong>{{ deal.total_units }}</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">$/Unit</small>
+                    <strong>${{ "{:,.0f}".format(m.price_per_unit) }}</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">In-Place</small>
+                    <strong>${{ "{:,.0f}".format(deal.in_place_rent) }}/mo</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Market</small>
+                    <strong>${{ "{:,.0f}".format(deal.market_rent) }}/mo</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Occupancy</small>
+                    <strong>{{ "%.0f"|format(deal.occupancy * 100) }}%</strong>
+                </div></div>
+            </div>
+        </div>
+
+        <!-- Return Metrics Cards -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-3 col-6">
+                <div class="card bg-dark-card metric-card">
+                    <div class="card-body text-center">
+                        <small class="text-muted">Levered IRR</small>
+                        <h3 class="text-gold mb-0">
+                            {% if irr is not none %}{{ "%.1f"|format(irr * 100) }}%{% else %}N/A{% endif %}
+                        </h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="card bg-dark-card metric-card">
+                    <div class="card-body text-center">
+                        <small class="text-muted">Equity Multiple</small>
+                        <h3 class="text-gold mb-0">{{ "%.2f"|format(m.equity_multiple) }}x</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="card bg-dark-card metric-card">
+                    <div class="card-body text-center">
+                        <small class="text-muted">Cash-on-Cash (Yr 1)</small>
+                        <h3 class="text-gold mb-0">{{ "%.1f"|format(m.cash_on_cash_yr1 * 100) }}%</h3>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-3 col-6">
+                <div class="card bg-dark-card metric-card">
+                    <div class="card-body text-center">
+                        <small class="text-muted">DSCR (Yr 1)</small>
+                        <h3 class="{% if m.dscr_yr1 >= 1.25 %}text-success{% elif m.dscr_yr1 >= 1.0 %}text-warning{% else %}text-danger{% endif %} mb-0">
+                            {{ "%.2f"|format(m.dscr_yr1) }}x
+                        </h3>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Secondary Metrics -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Going-In Cap</small>
+                    <strong>{{ "%.2f"|format(m.going_in_cap_rate * 100) }}%</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Exit Cap</small>
+                    <strong>{{ "%.2f"|format(m.exit_cap_rate * 100) }}%</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Yield on Cost</small>
+                    <strong>{{ "%.2f"|format(m.yield_on_cost * 100) }}%</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Stab. YOC</small>
+                    <strong>{{ "%.2f"|format(m.stabilized_yoc * 100) }}%</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Stab. DSCR</small>
+                    <strong>{{ "%.2f"|format(m.stabilized_dscr) }}x</strong>
+                </div></div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="card bg-dark-card"><div class="card-body text-center py-2">
+                    <small class="text-muted d-block">Unlev. IRR</small>
+                    <strong>{% if m.unlevered_irr is not none %}{{ "%.1f"|format(m.unlevered_irr * 100) }}%{% else %}N/A{% endif %}</strong>
+                </div></div>
+            </div>
+        </div>
+
+        <!-- Charts Row -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card bg-dark-card">
+                    <div class="card-header bg-navy"><h6 class="mb-0">NOI Growth &amp; Value-Add Trajectory</h6></div>
+                    <div class="card-body"><canvas id="noiChart"></canvas></div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card bg-dark-card">
+                    <div class="card-header bg-navy"><h6 class="mb-0">Annual Before-Tax Cash Flow</h6></div>
+                    <div class="card-body"><canvas id="cashFlowChart"></canvas></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Sources & Uses + Exit -->
+        <div class="row g-3 mb-4">
+            <div class="col-md-6">
+                <div class="card bg-dark-card">
+                    <div class="card-header bg-navy"><h6 class="mb-0">Sources &amp; Uses</h6></div>
+                    <div class="card-body">
+                        <table class="table table-dark table-sm">
+                            <thead><tr><th>Sources</th><th class="text-end">Amount</th></tr></thead>
+                            <tbody>
+                                <tr><td>Senior Debt ({{ "%.0f"|format(deal.ltv * 100) }}% LTV)</td><td class="text-end">${{ "{:,.0f}".format(su.sources.senior_debt) }}</td></tr>
+                                <tr><td>Sponsor Equity</td><td class="text-end">${{ "{:,.0f}".format(su.sources.sponsor_equity) }}</td></tr>
+                                <tr class="fw-bold"><td>Total</td><td class="text-end">${{ "{:,.0f}".format(su.sources.total) }}</td></tr>
+                            </tbody>
+                        </table>
+                        <table class="table table-dark table-sm">
+                            <thead><tr><th>Uses</th><th class="text-end">Amount</th></tr></thead>
+                            <tbody>
+                                <tr><td>Purchase Price</td><td class="text-end">${{ "{:,.0f}".format(su.uses.purchase_price) }}</td></tr>
+                                <tr><td>Closing Costs</td><td class="text-end">${{ "{:,.0f}".format(su.uses.closing_costs) }}</td></tr>
+                                {% if su.uses.deferred_maintenance > 0 %}
+                                <tr><td>Deferred Maintenance</td><td class="text-end">${{ "{:,.0f}".format(su.uses.deferred_maintenance) }}</td></tr>
+                                {% endif %}
+                                {% if su.uses.planned_capex > 0 %}
+                                <tr><td>Planned CapEx{% if deal.capex_description %} ({{ deal.capex_description }}){% endif %}</td><td class="text-end">${{ "{:,.0f}".format(su.uses.planned_capex) }}</td></tr>
+                                {% endif %}
+                                <tr class="fw-bold"><td>Total</td><td class="text-end">${{ "{:,.0f}".format(su.uses.total) }}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            <div class="col-md-6">
+                <div class="card bg-dark-card">
+                    <div class="card-header bg-navy"><h6 class="mb-0">Exit Summary (Year {{ rev.exit_year }})</h6></div>
+                    <div class="card-body">
+                        <table class="table table-dark table-sm">
+                            <tbody>
+                                <tr><td>Forward NOI</td><td class="text-end">${{ "{:,.0f}".format(rev.forward_noi) }}</td></tr>
+                                <tr><td>Exit Cap Rate</td><td class="text-end">{{ "%.2f"|format(rev.exit_cap_rate * 100) }}%</td></tr>
+                                <tr><td>Gross Sale Price</td><td class="text-end">${{ "{:,.0f}".format(rev.sale_price) }}</td></tr>
+                                <tr><td>Sale Costs</td><td class="text-end">(${{ "{:,.0f}".format(rev.sale_costs) }})</td></tr>
+                                <tr><td>Loan Payoff</td><td class="text-end">(${{ "{:,.0f}".format(rev.loan_balance) }})</td></tr>
+                                <tr class="fw-bold text-gold"><td>Net Sale Proceeds</td><td class="text-end">${{ "{:,.0f}".format(rev.net_sale_proceeds) }}</td></tr>
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Pro Forma Table -->
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy"><h6 class="mb-0">10-Year Pro Forma</h6></div>
+            <div class="card-body table-responsive">
+                <table class="table table-dark table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th></th>
+                            {% for yr in results.pro_forma %}
+                            <th class="text-end">Yr {{ yr.year }}</th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <tr class="text-muted"><td>Rent/Unit</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.rent_per_unit) }}</td>{% endfor %}</tr>
+                        <tr class="text-muted"><td>Occupancy</td>{% for yr in results.pro_forma %}<td class="text-end">{{ "%.1f"|format(yr.occupancy * 100) }}%</td>{% endfor %}</tr>
+                        <tr><td>EGI</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.effective_gross_income) }}</td>{% endfor %}</tr>
+                        <tr><td>Expenses</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.total_expenses) }})</td>{% endfor %}</tr>
+                        <tr class="fw-bold"><td>NOI</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.noi) }}</td>{% endfor %}</tr>
+                        <tr><td>Debt Service</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.debt_service) }})</td>{% endfor %}</tr>
+                        <tr class="fw-bold text-gold"><td>BTCF</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.btcf) }}</td>{% endfor %}</tr>
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- Download Buttons -->
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy"><h6 class="mb-0">Download Deliverables</h6></div>
+            <div class="card-body text-center">
+                <div class="row g-3 justify-content-center">
+                    <div class="col-md-4">
+                        <a href="/api/download/{{ job_id }}/excel" class="btn btn-success btn-lg w-100">
+                            <i class="bi bi-file-earmark-spreadsheet fs-4"></i><br>
+                            Excel Workbook (8 tabs)
+                        </a>
+                    </div>
+                    <div class="col-md-4">
+                        <a href="/api/download/{{ job_id }}/word" class="btn btn-primary btn-lg w-100">
+                            <i class="bi bi-file-earmark-word fs-4"></i><br>
+                            Investment Memo
+                        </a>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    const noiData = {{ results.annual_nois | tojson }};
+    const btcfData = {{ results.annual_btcfs | tojson }};
+    const years = noiData.map((_, i) => 'Year ' + (i + 1));
+
+    new Chart(document.getElementById('noiChart'), {
+        type: 'bar',
+        data: {
+            labels: years,
+            datasets: [{
+                label: 'NOI',
+                data: noiData,
+                backgroundColor: 'rgba(27, 42, 74, 0.85)',
+                borderColor: '#C8A951',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    ticks: { callback: v => '$' + (v/1e6).toFixed(2) + 'M', color: '#aaa' },
+                    grid: { color: '#2a3a4f' }
+                },
+                x: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' } }
+            }
+        }
+    });
+
+    new Chart(document.getElementById('cashFlowChart'), {
+        type: 'bar',
+        data: {
+            labels: years,
+            datasets: [{
+                label: 'BTCF',
+                data: btcfData,
+                backgroundColor: 'rgba(200, 169, 81, 0.75)',
+                borderColor: '#1B2A4A',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: {
+                    ticks: { callback: v => '$' + (v/1000).toFixed(0) + 'K', color: '#aaa' },
+                    grid: { color: '#2a3a4f' }
+                },
+                x: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' } }
+            }
+        }
+    });
+});
+</script>
+{% endblock %}

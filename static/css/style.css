@@ -1,0 +1,237 @@
+/* ===== RE Underwriting Tool — Dark Professional Theme ===== */
+
+:root {
+    --navy: #1B2A4A;
+    --dark-blue: #2C3E6B;
+    --gold: #C8A951;
+    --dark-bg: #121820;
+    --card-bg: #1a2332;
+    --border-color: #2a3a4f;
+}
+
+body {
+    background-color: var(--dark-bg);
+    color: #e0e0e0;
+    font-family: 'Calibri', 'Segoe UI', sans-serif;
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+}
+
+main {
+    flex: 1;
+}
+
+/* Navbar */
+.bg-navy {
+    background-color: var(--navy) !important;
+}
+
+.navbar-brand {
+    font-size: 1.25rem;
+    letter-spacing: 0.5px;
+}
+
+.text-gold {
+    color: var(--gold) !important;
+}
+
+/* Cards */
+.bg-dark-card {
+    background-color: var(--card-bg) !important;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+}
+
+.card-header.bg-navy {
+    border-radius: 7px 7px 0 0 !important;
+    border-bottom: 2px solid var(--gold);
+}
+
+/* Metric Cards */
+.metric-card {
+    transition: transform 0.2s, box-shadow 0.2s;
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 15px rgba(200, 169, 81, 0.15);
+}
+
+/* Buttons */
+.btn-gold {
+    background-color: var(--gold);
+    color: var(--navy);
+    font-weight: 600;
+    border: none;
+}
+
+.btn-gold:hover {
+    background-color: #d4b85e;
+    color: var(--navy);
+}
+
+/* Form Steps */
+.form-step {
+    display: none;
+}
+
+.form-step.active {
+    display: block;
+}
+
+/* Step Indicators */
+.step-indicator {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 16px;
+    border-radius: 20px;
+    background: var(--card-bg);
+    border: 1px solid var(--border-color);
+    font-size: 0.85rem;
+    color: #888;
+    transition: all 0.3s;
+}
+
+.step-indicator.active {
+    background: var(--navy);
+    border-color: var(--gold);
+    color: var(--gold);
+}
+
+.step-indicator.completed {
+    background: var(--navy);
+    border-color: #28a745;
+    color: #28a745;
+}
+
+.step-number {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--border-color);
+    font-weight: 600;
+    font-size: 0.8rem;
+}
+
+.step-indicator.active .step-number {
+    background: var(--gold);
+    color: var(--navy);
+}
+
+.step-connector {
+    width: 40px;
+    height: 2px;
+    background: var(--border-color);
+    align-self: center;
+}
+
+/* Form Controls */
+.form-control,
+.form-select {
+    background-color: #0d1117;
+    border-color: var(--border-color);
+    color: #e0e0e0;
+}
+
+.form-control:focus,
+.form-select:focus {
+    background-color: #0d1117;
+    border-color: var(--gold);
+    color: #e0e0e0;
+    box-shadow: 0 0 0 0.2rem rgba(200, 169, 81, 0.15);
+}
+
+.form-label {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: #aab;
+}
+
+/* Tables */
+.table-dark {
+    --bs-table-bg: transparent;
+    --bs-table-border-color: var(--border-color);
+}
+
+.table-dark thead th {
+    background-color: var(--navy);
+    color: var(--gold);
+    font-weight: 600;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+/* Progress Bar */
+.progress {
+    background-color: var(--card-bg);
+    border-radius: 3px;
+}
+
+.progress-bar.bg-gold {
+    background-color: var(--gold) !important;
+}
+
+/* Footer */
+footer {
+    border-top: 1px solid var(--border-color);
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    .step-indicator {
+        font-size: 0.7rem;
+        padding: 6px 10px;
+    }
+
+    .step-connector {
+        width: 20px;
+    }
+
+    h2 {
+        font-size: 1.4rem;
+    }
+}
+
+/* Tooltips */
+[data-bs-toggle="tooltip"] {
+    cursor: help;
+    color: var(--gold);
+}
+
+/* Alert customization */
+.alert-success {
+    background-color: rgba(40, 167, 69, 0.15);
+    border-color: #28a745;
+    color: #7ddf9a;
+}
+
+.alert-warning {
+    background-color: rgba(255, 193, 7, 0.15);
+    border-color: #ffc107;
+    color: #ffd95c;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+}
+
+::-webkit-scrollbar-track {
+    background: var(--dark-bg);
+}
+
+::-webkit-scrollbar-thumb {
+    background: var(--border-color);
+    border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+    background: var(--gold);
+}

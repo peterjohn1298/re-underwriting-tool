@@ -1,0 +1,225 @@
+{% extends "base.html" %}
+{% block title %}RE Underwriting Tool — New Analysis{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+    <div class="col-lg-8">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2 class="text-gold mb-0"><i class="bi bi-clipboard-data"></i> New Investment Analysis</h2>
+            <button type="button" class="btn btn-outline-warning btn-sm" id="loadDemoBtn">
+                <i class="bi bi-lightning-fill"></i> Load Demo Values
+            </button>
+        </div>
+
+        <form id="underwritingForm" method="POST" action="/api/analyze">
+            <div class="card bg-dark-card">
+                <div class="card-header bg-navy">
+                    <h5 class="mb-0"><i class="bi bi-building"></i> Deal Sheet</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+
+                        <!-- Property Type -->
+                        <div class="col-md-6">
+                            <label class="form-label">Property Type <span class="text-danger">*</span></label>
+                            <select class="form-select" name="property_type" required>
+                                <option value="" selected disabled>Select type...</option>
+                                <option value="Multifamily - Class A">Multifamily - Class A</option>
+                                <option value="Multifamily - Class B">Multifamily - Class B</option>
+                                <option value="Multifamily - Class C">Multifamily - Class C</option>
+                                <option value="Office - Class A">Office - Class A</option>
+                                <option value="Office - Class B">Office - Class B</option>
+                                <option value="Retail - Neighborhood">Retail - Neighborhood</option>
+                                <option value="Retail - Strip">Retail - Strip</option>
+                                <option value="Industrial - Warehouse">Industrial - Warehouse</option>
+                                <option value="Industrial - Flex">Industrial - Flex</option>
+                            </select>
+                        </div>
+
+                        <!-- Year Built -->
+                        <div class="col-md-6">
+                            <label class="form-label">Year Built <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" name="year_built" required placeholder="1995" min="1900" max="2030">
+                        </div>
+
+                        <!-- Address (single field) -->
+                        <div class="col-12">
+                            <label class="form-label">Address <span class="text-danger">*</span></label>
+                            <input type="text" class="form-control" name="address" required placeholder="4500 Duval Street, Austin, TX 78751">
+                        </div>
+
+                        <div class="col-12"><hr class="border-secondary my-1"></div>
+
+                        <!-- Purchase Price -->
+                        <div class="col-md-6">
+                            <label class="form-label">Purchase Price ($) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" name="purchase_price" required min="1" step="1" placeholder="12500000">
+                        </div>
+
+                        <!-- Current NOI -->
+                        <div class="col-md-6">
+                            <label class="form-label">Current NOI ($) <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" name="current_noi" required min="0" step="1" placeholder="650000">
+                        </div>
+
+                        <!-- Units & SF -->
+                        <div class="col-md-3">
+                            <label class="form-label">Units <span class="text-danger">*</span></label>
+                            <input type="number" class="form-control" name="total_units" required min="1" placeholder="50">
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Total SF</label>
+                            <input type="number" class="form-control" name="total_sf" placeholder="45000" step="1">
+                        </div>
+
+                        <!-- Rents -->
+                        <div class="col-md-3">
+                            <label class="form-label">In-Place Rent <span class="text-danger">*</span>
+                                <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Average monthly rent per unit"></i>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" name="in_place_rent" required min="0" step="1" placeholder="1300">
+                                <span class="input-group-text">/mo</span>
+                            </div>
+                        </div>
+                        <div class="col-md-3">
+                            <label class="form-label">Market Rent
+                                <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Average market rent per unit — drives value-add upside"></i>
+                            </label>
+                            <div class="input-group">
+                                <span class="input-group-text">$</span>
+                                <input type="number" class="form-control" name="market_rent" min="0" step="1" placeholder="1450">
+                                <span class="input-group-text">/mo</span>
+                            </div>
+                        </div>
+
+                        <!-- Occupancy -->
+                        <div class="col-md-4">
+                            <label class="form-label">Occupancy (%) <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" name="occupancy" required min="0" max="100" step="0.5" placeholder="92">
+                                <span class="input-group-text">%</span>
+                            </div>
+                        </div>
+
+                        <div class="col-12"><hr class="border-secondary my-1"></div>
+
+                        <!-- CapEx -->
+                        <div class="col-md-4">
+                            <label class="form-label">Deferred Maintenance ($)</label>
+                            <input type="number" class="form-control" name="deferred_maintenance" min="0" step="1" placeholder="200000">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">Planned CapEx ($)
+                                <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Unit upgrades, repositioning budget"></i>
+                            </label>
+                            <input type="number" class="form-control" name="planned_capex" min="0" step="1" placeholder="500000">
+                        </div>
+                        <div class="col-md-4">
+                            <label class="form-label">CapEx Description</label>
+                            <input type="text" class="form-control" name="capex_description" placeholder="Unit upgrades">
+                        </div>
+
+                        <!-- Hold Period -->
+                        <div class="col-md-4">
+                            <label class="form-label">Hold Period <span class="text-danger">*</span></label>
+                            <div class="input-group">
+                                <input type="number" class="form-control" name="hold_period_years" required min="1" max="15" placeholder="7">
+                                <span class="input-group-text">years</span>
+                            </div>
+                        </div>
+
+                    </div>
+                </div>
+            </div>
+
+            <!-- Optional: Advanced Assumptions (collapsed) -->
+            <div class="accordion mt-3" id="advancedAccordion">
+                <div class="accordion-item bg-dark-card border-secondary">
+                    <h2 class="accordion-header">
+                        <button class="accordion-button collapsed bg-dark-card text-muted" type="button" data-bs-toggle="collapse" data-bs-target="#advancedPanel">
+                            <i class="bi bi-sliders me-2"></i> Override Defaults (Optional)
+                        </button>
+                    </h2>
+                    <div id="advancedPanel" class="accordion-collapse collapse" data-bs-parent="#advancedAccordion">
+                        <div class="accordion-body">
+                            <div class="row g-3">
+                                <div class="col-md-3">
+                                    <label class="form-label">LTV (%)</label>
+                                    <input type="number" class="form-control" name="ltv" value="65" step="0.5" min="0" max="85">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Interest Rate (%)</label>
+                                    <input type="number" class="form-control" name="interest_rate" value="6.75" step="0.05" min="0" max="20">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Amortization (Yr)</label>
+                                    <input type="number" class="form-control" name="amortization_years" value="30" min="1" max="40">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Loan Term (Yr)</label>
+                                    <input type="number" class="form-control" name="loan_term_years" value="10" min="1" max="30">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Closing Costs (%)</label>
+                                    <input type="number" class="form-control" name="closing_costs_pct" value="3" step="0.1" min="0" max="10">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Revenue Growth (%/yr)</label>
+                                    <input type="number" class="form-control" name="revenue_growth_rate" value="3" step="0.1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Expense Growth (%/yr)</label>
+                                    <input type="number" class="form-control" name="expense_growth_rate" value="3" step="0.1">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Mgmt Fee (%)</label>
+                                    <input type="number" class="form-control" name="management_fee_pct" value="3.5" step="0.1" min="0" max="15">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Exit Cap Spread (bps)</label>
+                                    <input type="number" class="form-control" name="exit_cap_rate_spread" value="25" step="5" min="-100" max="200">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Sale Costs (%)</label>
+                                    <input type="number" class="form-control" name="sale_costs_pct" value="2.5" step="0.1" min="0" max="10">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Reserves/Unit ($/yr)</label>
+                                    <input type="number" class="form-control" name="replacement_reserves_per_unit" value="250" step="25" min="0">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">IO Period (Yr)</label>
+                                    <input type="number" class="form-control" name="io_period_years" value="0" min="0" max="10">
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="d-grid mt-4">
+                <button type="submit" class="btn btn-success btn-lg" id="submitBtn">
+                    <i class="bi bi-play-fill"></i> Run Underwriting Analysis
+                </button>
+            </div>
+        </form>
+
+        <!-- Processing Modal -->
+        <div class="modal fade" id="processingModal" data-bs-backdrop="static" tabindex="-1">
+            <div class="modal-dialog modal-dialog-centered">
+                <div class="modal-content bg-dark-card">
+                    <div class="modal-body text-center py-5">
+                        <div class="spinner-border text-gold mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
+                        <h4>Running Analysis...</h4>
+                        <p class="text-muted" id="processingStatus">Initializing...</p>
+                        <div class="progress mt-3" style="height: 6px;">
+                            <div class="progress-bar bg-gold" id="processingBar" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+{% endblock %}
