@@ -3,3 +3,5 @@ __pycache__/
 outputs/
 .deps_installed
 *.zip
+.env
+uploads/

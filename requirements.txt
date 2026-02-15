@@ -5,3 +5,9 @@ requests==2.32.3
 beautifulsoup4==4.12.3
 numpy-financial==1.0.0
 gunicorn==23.0.0
+python-dotenv>=1.0.1
+anthropic>=0.39.0
+scikit-learn>=1.5.2
+pandas>=2.2.3
+PyPDF2==3.0.1
+joblib>=1.4.2

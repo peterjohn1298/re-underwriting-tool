@@ -149,6 +149,62 @@ def sensitivity_table_noi_growth(
     return results
 
 
+def sensitivity_table_interest_rate(
+    deal,
+    rate_deltas: list[float] | None = None,
+) -> list[dict]:
+    """Sensitivity on interest rate — returns rows with IRR and DSCR."""
+    if rate_deltas is None:
+        rate_deltas = [-0.0150, -0.0100, -0.0050, 0.0, 0.0050, 0.0100, 0.0150]
+
+    import copy
+    from models.financial_model import build_pro_forma
+    results = []
+    for delta in rate_deltas:
+        modified = copy.deepcopy(deal)
+        modified.interest_rate = max(0.01, deal.interest_rate + delta)
+        pf = build_pro_forma(modified)
+        irr = pf["metrics"]["levered_irr"]
+        em = pf["metrics"]["equity_multiple"]
+        dscr = pf["metrics"]["dscr_yr1"]
+        results.append({
+            "interest_rate": round((deal.interest_rate + delta) * 100, 2),
+            "irr": round(irr * 100, 2) if irr else None,
+            "equity_multiple": round(em, 2) if em else None,
+            "dscr": round(dscr, 2) if dscr else None,
+        })
+    return results
+
+
+def sensitivity_table_rent_growth(
+    deal,
+    growth_deltas: list[float] | None = None,
+) -> list[dict]:
+    """Sensitivity on rent growth — returns rows with IRR and stabilized YOC."""
+    if growth_deltas is None:
+        growth_deltas = [-0.02, -0.01, 0.0, 0.01, 0.02]
+
+    import copy
+    from models.financial_model import build_pro_forma
+    results = []
+    for delta in growth_deltas:
+        modified = copy.deepcopy(deal)
+        modified.revenue_growth_rate = max(0, deal.revenue_growth_rate + delta)
+        # Clear variable growth so flat rate is used
+        modified.yearly_revenue_growth = []
+        pf = build_pro_forma(modified)
+        irr = pf["metrics"]["levered_irr"]
+        em = pf["metrics"]["equity_multiple"]
+        syoc = pf["metrics"]["stabilized_yoc"]
+        results.append({
+            "rent_growth": round((deal.revenue_growth_rate + delta) * 100, 2),
+            "irr": round(irr * 100, 2) if irr else None,
+            "equity_multiple": round(em, 2) if em else None,
+            "stabilized_yoc": round(syoc * 100, 2) if syoc else None,
+        })
+    return results
+
+
 def sensitivity_table_purchase_price(
     deal,
     price_deltas: list[float] | None = None,

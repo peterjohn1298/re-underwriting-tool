@@ -32,6 +32,37 @@ class DealInputs:
     sale_costs_pct: float = 0.025
     replacement_reserves_per_unit: float = 250.0
 
+    # AI/ML feature flags
+    lease_pdf_paths: list = field(default_factory=list)  # multi-lease support
+    enable_ml_valuation: bool = False
+    enable_rent_prediction: bool = False
+
+    # Tax analysis
+    tax_rate: float = 0.25           # marginal income tax rate
+    depreciation_years: int = 0      # 0 = auto (27.5 residential, 39 commercial)
+    land_value_pct: float = 0.20     # land as % of purchase price (not depreciable)
+
+    # Optional expense category overrides (0 = auto-derive from NOI)
+    override_property_tax: float = 0.0
+    override_insurance: float = 0.0
+    override_utilities: float = 0.0
+    override_repairs: float = 0.0
+    override_general_admin: float = 0.0
+    override_other_expenses: float = 0.0
+
+    # Variable growth rates (populated by rent predictor)
+    yearly_revenue_growth: list = field(default_factory=list)
+
+    # Backward compat
+    @property
+    def lease_pdf_path(self):
+        return self.lease_pdf_paths[0] if self.lease_pdf_paths else ""
+
+    @lease_pdf_path.setter
+    def lease_pdf_path(self, val):
+        if val:
+            self.lease_pdf_paths = [val]
+
 
 @dataclass
 class DerivedAssumptions:
@@ -47,14 +78,14 @@ class DerivedAssumptions:
     asset_class: str = "Class B"
 
     # Revenue
-    gross_potential_rent: float = 0.0    # in-place rent × units × 12
-    market_gpr: float = 0.0             # market rent × units × 12
+    gross_potential_rent: float = 0.0    # in-place rent x units x 12
+    market_gpr: float = 0.0             # market rent x units x 12
     vacancy_rate: float = 0.08
     effective_gross_income: float = 0.0
     other_income: float = 0.0
     rent_premium_potential: float = 0.0  # market vs in-place spread
 
-    # Expenses (backed out from NOI)
+    # Expenses (backed out from NOI or from overrides)
     total_operating_expenses: float = 0.0
     expense_ratio: float = 0.0
     property_tax: float = 0.0
@@ -76,6 +107,11 @@ class DerivedAssumptions:
     exit_cap_rate: float = 0.0
     price_per_unit: float = 0.0
     price_per_sf: float = 0.0
+
+    # Tax / Depreciation
+    depreciation_years: int = 27
+    annual_depreciation: float = 0.0
+    depreciable_basis: float = 0.0
 
 
 def parse_address(address: str) -> dict:
@@ -135,32 +171,48 @@ def derive_assumptions(deal: DealInputs) -> DerivedAssumptions:
         d.other_income = d.gross_potential_rent * 0.03
     d.effective_gross_income += d.other_income
 
-    # --- Expenses (back into from NOI) ---
-    # Current NOI = EGI - Total Expenses
-    # Total Expenses = EGI - NOI
-    d.total_operating_expenses = d.effective_gross_income - deal.current_noi
-    if d.total_operating_expenses < 0:
-        d.total_operating_expenses = 0
+    # --- Expenses ---
+    # Check if user provided category overrides
+    has_overrides = any([
+        deal.override_property_tax > 0, deal.override_insurance > 0,
+        deal.override_utilities > 0, deal.override_repairs > 0,
+        deal.override_general_admin > 0, deal.override_other_expenses > 0,
+    ])
+
+    if has_overrides:
+        # Use user-provided expense categories
+        mgmt = d.effective_gross_income * deal.management_fee_pct
+        d.property_tax = deal.override_property_tax
+        d.insurance = deal.override_insurance
+        d.utilities = deal.override_utilities
+        d.repairs_maintenance = deal.override_repairs
+        d.general_admin = deal.override_general_admin
+        d.other_expenses = deal.override_other_expenses
+        d.total_operating_expenses = mgmt + d.property_tax + d.insurance + d.utilities + d.repairs_maintenance + d.general_admin + d.other_expenses
+    else:
+        # Back into expenses from NOI
+        d.total_operating_expenses = d.effective_gross_income - deal.current_noi
+        if d.total_operating_expenses < 0:
+            d.total_operating_expenses = 0
+
+        total_ex = d.total_operating_expenses
+        mgmt = d.effective_gross_income * deal.management_fee_pct
+        remaining = total_ex - mgmt
+        if remaining < 0:
+            remaining = total_ex
+            mgmt = 0
+
+        d.property_tax = remaining * 0.35
+        d.insurance = remaining * 0.15
+        d.utilities = remaining * 0.15
+        d.repairs_maintenance = remaining * 0.15
+        d.general_admin = remaining * 0.10
+        d.other_expenses = remaining * 0.10
 
     if d.effective_gross_income > 0:
         d.expense_ratio = d.total_operating_expenses / d.effective_gross_income
     else:
         d.expense_ratio = 0.45  # default
-
-    # Break down expenses into categories (industry-typical allocation)
-    total_ex = d.total_operating_expenses
-    mgmt = d.effective_gross_income * deal.management_fee_pct
-    remaining = total_ex - mgmt
-    if remaining < 0:
-        remaining = total_ex
-        mgmt = 0
-
-    d.property_tax = remaining * 0.35
-    d.insurance = remaining * 0.15
-    d.utilities = remaining * 0.15
-    d.repairs_maintenance = remaining * 0.15
-    d.general_admin = remaining * 0.10
-    d.other_expenses = remaining * 0.10
 
     # --- Capital ---
     d.total_capex = deal.deferred_maintenance + deal.planned_capex
@@ -177,6 +229,17 @@ def derive_assumptions(deal: DealInputs) -> DerivedAssumptions:
         d.price_per_unit = deal.purchase_price / deal.total_units if deal.total_units > 0 else 0
         d.price_per_sf = deal.purchase_price / deal.total_sf if deal.total_sf > 0 else 0
     d.exit_cap_rate = d.going_in_cap_rate + deal.exit_cap_rate_spread
+
+    # --- Depreciation / Tax ---
+    if deal.depreciation_years > 0:
+        d.depreciation_years = deal.depreciation_years
+    elif "Multifamily" in d.asset_type:
+        d.depreciation_years = 27  # 27.5 rounded
+    else:
+        d.depreciation_years = 39  # commercial
+
+    d.depreciable_basis = deal.purchase_price * (1 - deal.land_value_pct) + d.total_capex
+    d.annual_depreciation = d.depreciable_basis / d.depreciation_years if d.depreciation_years > 0 else 0
 
     return d
 
@@ -211,6 +274,10 @@ def to_full_dict(deal: DealInputs, derived: DerivedAssumptions) -> dict:
             "exit_cap_rate_spread": deal.exit_cap_rate_spread,
             "sale_costs_pct": deal.sale_costs_pct,
             "replacement_reserves_per_unit": deal.replacement_reserves_per_unit,
+            "tax_rate": deal.tax_rate,
+            "land_value_pct": deal.land_value_pct,
+            "enable_ml_valuation": deal.enable_ml_valuation,
+            "enable_rent_prediction": deal.enable_rent_prediction,
         },
         "derived": {
             "property_name": derived.property_name,
@@ -243,5 +310,8 @@ def to_full_dict(deal: DealInputs, derived: DerivedAssumptions) -> dict:
             "exit_cap_rate": derived.exit_cap_rate,
             "price_per_unit": derived.price_per_unit,
             "price_per_sf": derived.price_per_sf,
+            "depreciation_years": derived.depreciation_years,
+            "annual_depreciation": derived.annual_depreciation,
+            "depreciable_basis": derived.depreciable_basis,
         },
     }

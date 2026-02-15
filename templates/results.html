@@ -17,7 +17,37 @@
             <a href="/" class="btn btn-outline-light btn-sm"><i class="bi bi-plus-lg"></i> New Analysis</a>
         </div>
 
-        <!-- Recommendation Banner -->
+        <!-- Integrated Recommendation Banner (Fix #1) -->
+        {% if recommendation %}
+        {% set rec = recommendation.recommendation %}
+        <div class="alert {% if 'BUY' in rec %}alert-success{% elif 'HOLD' in rec %}alert-warning{% else %}alert-danger{% endif %} mb-4">
+            <div class="d-flex align-items-center mb-2">
+                <i class="bi {% if 'BUY' in rec %}bi-check-circle-fill{% elif 'HOLD' in rec %}bi-exclamation-triangle-fill{% else %}bi-x-circle-fill{% endif %} me-2 fs-4"></i>
+                <div>
+                    <strong>Recommendation: {{ rec }}</strong>
+                    {% if m.levered_irr is not none %} &mdash; {{ "%.1f"|format(m.levered_irr * 100) }}% levered IRR{% endif %}
+                    {% if m.after_tax_irr is not none %} ({{ "%.1f"|format(m.after_tax_irr * 100) }}% after-tax){% endif %}
+                    over {{ deal.hold_period_years }}-year hold
+                    {% if m.used_variable_growth %}
+                    <span class="badge bg-info ms-2">Variable Growth Used</span>
+                    {% endif %}
+                </div>
+            </div>
+            {% if recommendation.signals %}
+            <div class="mt-2">
+                <small class="text-muted">Signal analysis:</small>
+                {% for source, signal, detail in recommendation.signals %}
+                <div class="ms-3">
+                    <small>
+                        <span class="badge {% if signal in ('BUY', 'STRONG BUY', 'POSITIVE') %}bg-success{% elif signal in ('CAUTION', 'HOLD', 'WARNING') %}bg-warning text-dark{% elif signal == 'NEUTRAL' %}bg-secondary{% else %}bg-danger{% endif %}">{{ signal }}</span>
+                        <strong>{{ source }}:</strong> {{ detail }}
+                    </small>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+        </div>
+        {% else %}
         {% set irr = m.levered_irr %}
         {% if irr is not none %}
         <div class="alert {% if irr >= 0.12 %}alert-success{% elif irr >= 0.08 %}alert-warning{% else %}alert-danger{% endif %} d-flex align-items-center mb-4">
@@ -25,11 +55,9 @@
             <div>
                 <strong>Recommendation: {% if irr >= 0.12 %}BUY{% elif irr >= 0.08 %}HOLD / CONDITIONAL{% else %}PASS{% endif %}</strong> &mdash;
                 {{ "%.1f"|format(irr * 100) }}% levered IRR over {{ deal.hold_period_years }}-year hold
-                {% if derived.rent_premium_potential > 0 %}
-                with ${{ derived.rent_premium_potential|int }}/unit rent upside potential
-                {% endif %}
             </div>
         </div>
+        {% endif %}
         {% endif %}
 
         <!-- Deal Snapshot -->
@@ -72,15 +100,18 @@
             </div>
         </div>
 
-        <!-- Return Metrics Cards -->
+        <!-- Return Metrics Cards (Fix #9: before-tax & after-tax) -->
         <div class="row g-3 mb-4">
             <div class="col-md-3 col-6">
                 <div class="card bg-dark-card metric-card">
                     <div class="card-body text-center">
                         <small class="text-muted">Levered IRR</small>
                         <h3 class="text-gold mb-0">
-                            {% if irr is not none %}{{ "%.1f"|format(irr * 100) }}%{% else %}N/A{% endif %}
+                            {% if m.levered_irr is not none %}{{ "%.1f"|format(m.levered_irr * 100) }}%{% else %}N/A{% endif %}
                         </h3>
+                        {% if m.after_tax_irr is not none %}
+                        <small class="text-muted">After-tax: {{ "%.1f"|format(m.after_tax_irr * 100) }}%</small>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -89,6 +120,9 @@
                     <div class="card-body text-center">
                         <small class="text-muted">Equity Multiple</small>
                         <h3 class="text-gold mb-0">{{ "%.2f"|format(m.equity_multiple) }}x</h3>
+                        {% if m.after_tax_equity_multiple is not none %}
+                        <small class="text-muted">After-tax: {{ "%.2f"|format(m.after_tax_equity_multiple) }}x</small>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -97,6 +131,9 @@
                     <div class="card-body text-center">
                         <small class="text-muted">Cash-on-Cash (Yr 1)</small>
                         <h3 class="text-gold mb-0">{{ "%.1f"|format(m.cash_on_cash_yr1 * 100) }}%</h3>
+                        {% if m.cash_on_cash_yr1_after_tax is not none %}
+                        <small class="text-muted">After-tax: {{ "%.1f"|format(m.cash_on_cash_yr1_after_tax * 100) }}%</small>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -152,6 +189,227 @@
             </div>
         </div>
 
+        <!-- ========== ML VALUATION CARD ========== -->
+        {% if ml_valuation and not ml_valuation.get('error') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-robot"></i> ML Property Valuation
+                    <span class="badge bg-secondary ms-2">Synthetic Data</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                {% set assess = ml_valuation.assessment %}
+                <div class="alert {% if assess == 'UNDERVALUED' %}alert-success{% elif assess == 'OVERVALUED' %}alert-danger{% else %}alert-info{% endif %} text-center mb-3">
+                    <h4 class="mb-1">{{ assess }}</h4>
+                    <span>Predicted: ${{ "{:,.0f}".format(ml_valuation.predicted_value_per_unit) }}/unit
+                        &bull; Actual: ${{ "{:,.0f}".format(ml_valuation.actual_price_per_unit) }}/unit
+                        &bull; {{ "%.1f"|format(ml_valuation.premium_discount_pct) }}% {{ "premium" if ml_valuation.premium_discount_pct > 0 else "discount" }}
+                    </span>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Predicted Total Value</small>
+                            <h4 class="text-gold">${{ "{:,.0f}".format(ml_valuation.predicted_total_value) }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Test R² Score</small>
+                            <h4 class="text-gold">{{ "%.3f"|format(ml_valuation.test_r2) }}</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Test MAPE</small>
+                            <h4 class="text-gold">{{ ml_valuation.test_mape }}%</h4>
+                        </div>
+                    </div>
+                    <div class="col-md-3">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Train / Test Samples</small>
+                            <h4 class="text-gold">{{ ml_valuation.training_samples }} / {{ ml_valuation.test_samples }}</h4>
+                        </div>
+                    </div>
+                </div>
+
+                {% if ml_valuation.confidence_note %}
+                <div class="alert alert-secondary mt-3 mb-3 py-2">
+                    <small><i class="bi bi-info-circle"></i> {{ ml_valuation.confidence_note }}</small>
+                </div>
+                {% endif %}
+
+                <div class="mt-3">
+                    <h6 class="text-muted">Feature Importance</h6>
+                    <canvas id="featureChart" height="200"></canvas>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ========== LEASE ANALYSIS CARD ========== -->
+        {% if lease_analysis and not lease_analysis.get('error') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-file-earmark-text"></i> Lease Document Analysis
+                    {% if lease_analysis.lease_count is defined %}
+                    <span class="badge bg-info ms-2">{{ lease_analysis.lease_count }} Lease(s)</span>
+                    {% endif %}
+                </h6>
+            </div>
+            <div class="card-body">
+                {% if lease_analysis.summary %}
+                <p class="mb-3"><em>{{ lease_analysis.summary }}</em></p>
+                {% endif %}
+
+                <!-- Lease vs Input Discrepancy Flags (Fix #1) -->
+                {% if lease_analysis.input_comparison and lease_analysis.input_comparison.flags %}
+                <div class="alert alert-warning py-2 mb-3">
+                    <strong><i class="bi bi-exclamation-triangle"></i> Input Discrepancies:</strong>
+                    {% for flag in lease_analysis.input_comparison.flags %}
+                    <div class="ms-3"><small>{{ flag }}</small></div>
+                    {% endfor %}
+                </div>
+                {% endif %}
+
+                {% if lease_analysis.individual_leases is defined %}
+                <!-- Multi-lease view -->
+                {% for lease in lease_analysis.individual_leases %}
+                {% if not lease.get('error') %}
+                <div class="border border-secondary rounded p-3 mb-3">
+                    <h6 class="text-gold">{{ lease.get('tenant_name', lease.get('file', 'Lease')) }}</h6>
+                    <div class="row g-2">
+                        {% if lease.lease_type %}<div class="col-md-3"><small class="text-muted">Type:</small> {{ lease.lease_type }}</div>{% endif %}
+                        {% if lease.monthly_rent %}<div class="col-md-3"><small class="text-muted">Rent:</small> ${{ "{:,.0f}".format(lease.monthly_rent) }}/mo</div>{% endif %}
+                        {% if lease.lease_term_months %}<div class="col-md-3"><small class="text-muted">Term:</small> {{ lease.lease_term_months }} mo</div>{% endif %}
+                        {% if lease.escalation_clause %}<div class="col-md-3"><small class="text-muted">Escalation:</small> {{ lease.escalation_clause }}</div>{% endif %}
+                    </div>
+                    {% if lease.risk_flags %}
+                    <div class="mt-2">
+                        {% for flag in lease.risk_flags %}
+                        <small class="text-warning"><i class="bi bi-exclamation-triangle"></i> {{ flag }}</small><br>
+                        {% endfor %}
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% endfor %}
+                {% else %}
+                <!-- Single lease view -->
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <h6 class="text-gold">Key Terms</h6>
+                        <table class="table table-dark table-sm">
+                            <tbody>
+                                {% if lease_analysis.tenant_name %}<tr><td>Tenant</td><td class="text-end">{{ lease_analysis.tenant_name }}</td></tr>{% endif %}
+                                {% if lease_analysis.lease_type %}<tr><td>Lease Type</td><td class="text-end">{{ lease_analysis.lease_type }}</td></tr>{% endif %}
+                                {% if lease_analysis.monthly_rent %}<tr><td>Monthly Rent</td><td class="text-end">${{ "{:,.0f}".format(lease_analysis.monthly_rent) }}</td></tr>{% endif %}
+                                {% if lease_analysis.annual_rent %}<tr><td>Annual Rent</td><td class="text-end">${{ "{:,.0f}".format(lease_analysis.annual_rent) }}</td></tr>{% endif %}
+                                {% if lease_analysis.lease_term_months %}<tr><td>Term</td><td class="text-end">{{ lease_analysis.lease_term_months }} months</td></tr>{% endif %}
+                                {% if lease_analysis.escalation_clause %}<tr><td>Escalation</td><td class="text-end">{{ lease_analysis.escalation_clause }}</td></tr>{% endif %}
+                                {% if lease_analysis.renewal_options %}<tr><td>Renewal</td><td class="text-end">{{ lease_analysis.renewal_options }}</td></tr>{% endif %}
+                                {% if lease_analysis.security_deposit %}<tr><td>Security Deposit</td><td class="text-end">${{ "{:,.0f}".format(lease_analysis.security_deposit) }}</td></tr>{% endif %}
+                                {% if lease_analysis.ti_allowance %}<tr><td>TI Allowance</td><td class="text-end">${{ "{:,.0f}".format(lease_analysis.ti_allowance) }}</td></tr>{% endif %}
+                                {% if lease_analysis.cam_charges %}<tr><td>CAM</td><td class="text-end">{{ lease_analysis.cam_charges }}</td></tr>{% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="col-md-6">
+                        {% if lease_analysis.key_clauses %}
+                        <h6 class="text-gold">Key Clauses</h6>
+                        <ul class="list-unstyled">
+                            {% for clause in lease_analysis.key_clauses %}
+                            <li class="mb-1"><i class="bi bi-check-circle text-success me-1"></i> {{ clause }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+
+                        {% if lease_analysis.risk_flags %}
+                        <h6 class="text-warning mt-3">Risk Flags</h6>
+                        <ul class="list-unstyled">
+                            {% for flag in lease_analysis.risk_flags %}
+                            <li class="mb-1"><i class="bi bi-exclamation-triangle text-warning me-1"></i> {{ flag }}</li>
+                            {% endfor %}
+                        </ul>
+                        {% endif %}
+                    </div>
+                </div>
+                {% endif %}
+                <small class="text-muted">Analysis method: {{ lease_analysis.get('analysis_method', 'N/A') }}</small>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ========== RENT PREDICTION CARD ========== -->
+        {% if rent_prediction and not rent_prediction.get('error') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-graph-up-arrow"></i> Predictive Rent Growth Model
+                    {% if m.used_variable_growth %}
+                    <span class="badge bg-success ms-2">Integrated into Pro Forma</span>
+                    {% endif %}
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3 text-center">
+                        <small class="text-muted d-block">Avg Predicted Growth</small>
+                        <h4 class="text-gold">{{ "%.2f"|format(rent_prediction.avg_predicted_growth) }}%</h4>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <small class="text-muted d-block">Historical Avg</small>
+                        <h4 class="text-gold">{{ "%.2f"|format(rent_prediction.historical_avg) }}%</h4>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <small class="text-muted d-block">Current Rent</small>
+                        <h4 class="text-gold">${{ "{:,.0f}".format(rent_prediction.current_rent) }}/mo</h4>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <small class="text-muted d-block">Data Source</small>
+                        <h6 class="text-muted mt-1">{{ rent_prediction.data_source }}</h6>
+                    </div>
+                </div>
+
+                <canvas id="rentChart" height="120"></canvas>
+
+                <div class="table-responsive mt-3">
+                    <table class="table table-dark table-sm table-striped">
+                        <thead>
+                            <tr>
+                                <th></th>
+                                {% for i in range(rent_prediction.predicted_rates|length) %}
+                                <th class="text-end">Year {{ i + 1 }}</th>
+                                {% endfor %}
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td>Growth Rate</td>
+                                {% for rate in rent_prediction.predicted_rates %}
+                                <td class="text-end">{{ "%.2f"|format(rate) }}%</td>
+                                {% endfor %}
+                            </tr>
+                            <tr>
+                                <td>Rent/Unit</td>
+                                {% for rent in rent_prediction.predicted_rents_per_unit %}
+                                <td class="text-end">${{ "{:,.0f}".format(rent) }}</td>
+                                {% endfor %}
+                            </tr>
+                            <tr class="fw-bold text-gold">
+                                <td>Annual Revenue</td>
+                                {% for rev_val in rent_prediction.predicted_annual_revenue %}
+                                <td class="text-end">${{ "{:,.0f}".format(rev_val) }}</td>
+                                {% endfor %}
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <small class="text-muted">Method: {{ rent_prediction.method }} | Training points: {{ rent_prediction.training_points }}</small>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Charts Row -->
         <div class="row g-3 mb-4">
             <div class="col-md-6">
@@ -162,7 +420,7 @@
             </div>
             <div class="col-md-6">
                 <div class="card bg-dark-card">
-                    <div class="card-header bg-navy"><h6 class="mb-0">Annual Before-Tax Cash Flow</h6></div>
+                    <div class="card-header bg-navy"><h6 class="mb-0">Annual Cash Flow (Before &amp; After Tax)</h6></div>
                     <div class="card-body"><canvas id="cashFlowChart"></canvas></div>
                 </div>
             </div>
@@ -210,7 +468,12 @@
                                 <tr><td>Gross Sale Price</td><td class="text-end">${{ "{:,.0f}".format(rev.sale_price) }}</td></tr>
                                 <tr><td>Sale Costs</td><td class="text-end">(${{ "{:,.0f}".format(rev.sale_costs) }})</td></tr>
                                 <tr><td>Loan Payoff</td><td class="text-end">(${{ "{:,.0f}".format(rev.loan_balance) }})</td></tr>
-                                <tr class="fw-bold text-gold"><td>Net Sale Proceeds</td><td class="text-end">${{ "{:,.0f}".format(rev.net_sale_proceeds) }}</td></tr>
+                                <tr class="fw-bold text-gold"><td>Net Sale Proceeds (Pre-Tax)</td><td class="text-end">${{ "{:,.0f}".format(rev.net_sale_proceeds) }}</td></tr>
+                                {% if rev.total_tax_on_sale is defined %}
+                                <tr><td>Depreciation Recapture Tax</td><td class="text-end">(${{ "{:,.0f}".format(rev.depreciation_recapture_tax) }})</td></tr>
+                                <tr><td>Capital Gains Tax</td><td class="text-end">(${{ "{:,.0f}".format(rev.capital_gains_tax) }})</td></tr>
+                                <tr class="fw-bold text-success"><td>Net Sale (After-Tax)</td><td class="text-end">${{ "{:,.0f}".format(rev.net_sale_proceeds_after_tax) }}</td></tr>
+                                {% endif %}
                             </tbody>
                         </table>
                     </div>
@@ -218,7 +481,7 @@
             </div>
         </div>
 
-        <!-- Pro Forma Table -->
+        <!-- Pro Forma Table (Fix #9: includes tax rows) -->
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy"><h6 class="mb-0">10-Year Pro Forma</h6></div>
             <div class="card-body table-responsive">
@@ -233,16 +496,128 @@
                     </thead>
                     <tbody>
                         <tr class="text-muted"><td>Rent/Unit</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.rent_per_unit) }}</td>{% endfor %}</tr>
+                        {% if m.used_variable_growth %}
+                        <tr class="text-muted"><td>Growth Rate</td>{% for yr in results.pro_forma %}<td class="text-end">{{ "%.1f"|format(yr.revenue_growth_used) }}%</td>{% endfor %}</tr>
+                        {% endif %}
                         <tr class="text-muted"><td>Occupancy</td>{% for yr in results.pro_forma %}<td class="text-end">{{ "%.1f"|format(yr.occupancy * 100) }}%</td>{% endfor %}</tr>
                         <tr><td>EGI</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.effective_gross_income) }}</td>{% endfor %}</tr>
                         <tr><td>Expenses</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.total_expenses) }})</td>{% endfor %}</tr>
                         <tr class="fw-bold"><td>NOI</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.noi) }}</td>{% endfor %}</tr>
                         <tr><td>Debt Service</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.debt_service) }})</td>{% endfor %}</tr>
                         <tr class="fw-bold text-gold"><td>BTCF</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.btcf) }}</td>{% endfor %}</tr>
+                        {% if results.pro_forma[0].atcf is defined %}
+                        <tr class="text-muted"><td>Depreciation</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.depreciation) }})</td>{% endfor %}</tr>
+                        <tr class="text-muted"><td>Tax Liability</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.tax_liability) }})</td>{% endfor %}</tr>
+                        <tr class="fw-bold text-success"><td>ATCF</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.atcf) }}</td>{% endfor %}</tr>
+                        {% endif %}
                     </tbody>
                 </table>
             </div>
         </div>
+
+        <!-- ========== SENSITIVITY TABLES (Fix #7) ========== -->
+        {% if sensitivity %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy"><h6 class="mb-0"><i class="bi bi-sliders2"></i> Sensitivity Analysis</h6></div>
+            <div class="card-body">
+                <div class="row g-4">
+                    <!-- Exit Cap Sensitivity -->
+                    {% if sensitivity.exit_cap %}
+                    <div class="col-md-6">
+                        <h6 class="text-gold">Exit Cap Rate</h6>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm table-striped">
+                                <thead><tr><th>Exit Cap</th><th class="text-end">Sale Price</th><th class="text-end">IRR</th><th class="text-end">EM</th></tr></thead>
+                                <tbody>
+                                    {% for row in sensitivity.exit_cap %}
+                                    <tr>
+                                        <td>{{ "%.2f"|format(row.exit_cap_rate) }}%</td>
+                                        <td class="text-end">${{ "{:,.0f}".format(row.sale_price) }}</td>
+                                        <td class="text-end {% if row.irr and row.irr >= 15 %}text-success{% elif row.irr and row.irr < 8 %}text-danger{% endif %}">
+                                            {% if row.irr is not none %}{{ "%.1f"|format(row.irr) }}%{% else %}N/A{% endif %}
+                                        </td>
+                                        <td class="text-end">{{ "%.2f"|format(row.equity_multiple) }}x</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Interest Rate Sensitivity -->
+                    {% if sensitivity.interest_rate %}
+                    <div class="col-md-6">
+                        <h6 class="text-gold">Interest Rate</h6>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm table-striped">
+                                <thead><tr><th>Rate</th><th class="text-end">IRR</th><th class="text-end">EM</th><th class="text-end">DSCR</th></tr></thead>
+                                <tbody>
+                                    {% for row in sensitivity.interest_rate %}
+                                    <tr>
+                                        <td>{{ "%.2f"|format(row.interest_rate) }}%</td>
+                                        <td class="text-end {% if row.irr and row.irr >= 15 %}text-success{% elif row.irr and row.irr < 8 %}text-danger{% endif %}">
+                                            {% if row.irr is not none %}{{ "%.1f"|format(row.irr) }}%{% else %}N/A{% endif %}
+                                        </td>
+                                        <td class="text-end">{% if row.equity_multiple is not none %}{{ "%.2f"|format(row.equity_multiple) }}x{% else %}N/A{% endif %}</td>
+                                        <td class="text-end {% if row.dscr and row.dscr < 1.0 %}text-danger{% elif row.dscr and row.dscr < 1.25 %}text-warning{% endif %}">
+                                            {% if row.dscr is not none %}{{ "%.2f"|format(row.dscr) }}x{% else %}N/A{% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Rent Growth Sensitivity -->
+                    {% if sensitivity.rent_growth %}
+                    <div class="col-md-6">
+                        <h6 class="text-gold">Rent Growth Rate</h6>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm table-striped">
+                                <thead><tr><th>Growth</th><th class="text-end">IRR</th><th class="text-end">EM</th><th class="text-end">Stab. YOC</th></tr></thead>
+                                <tbody>
+                                    {% for row in sensitivity.rent_growth %}
+                                    <tr>
+                                        <td>{{ "%.2f"|format(row.rent_growth) }}%</td>
+                                        <td class="text-end">{% if row.irr is not none %}{{ "%.1f"|format(row.irr) }}%{% else %}N/A{% endif %}</td>
+                                        <td class="text-end">{% if row.equity_multiple is not none %}{{ "%.2f"|format(row.equity_multiple) }}x{% else %}N/A{% endif %}</td>
+                                        <td class="text-end">{% if row.stabilized_yoc is not none %}{{ "%.2f"|format(row.stabilized_yoc) }}%{% else %}N/A{% endif %}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+
+                    <!-- Purchase Price Sensitivity -->
+                    {% if sensitivity.purchase_price %}
+                    <div class="col-md-6">
+                        <h6 class="text-gold">Purchase Price</h6>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-sm table-striped">
+                                <thead><tr><th>Change</th><th class="text-end">Price</th><th class="text-end">IRR</th><th class="text-end">EM</th></tr></thead>
+                                <tbody>
+                                    {% for row in sensitivity.purchase_price %}
+                                    <tr>
+                                        <td>{{ row.price_change }}</td>
+                                        <td class="text-end">${{ "{:,.0f}".format(row.purchase_price) }}</td>
+                                        <td class="text-end">{% if row.irr is not none %}{{ "%.1f"|format(row.irr) }}%{% else %}N/A{% endif %}</td>
+                                        <td class="text-end">{% if row.equity_multiple is not none %}{{ "%.2f"|format(row.equity_multiple) }}x{% else %}N/A{% endif %}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+        {% endif %}
 
         <!-- Download Buttons -->
         <div class="card bg-dark-card mb-4">
@@ -252,7 +627,7 @@
                     <div class="col-md-4">
                         <a href="/api/download/{{ job_id }}/excel" class="btn btn-success btn-lg w-100">
                             <i class="bi bi-file-earmark-spreadsheet fs-4"></i><br>
-                            Excel Workbook (8 tabs)
+                            Excel Workbook
                         </a>
                     </div>
                     <div class="col-md-4">
@@ -273,6 +648,7 @@
 document.addEventListener('DOMContentLoaded', function() {
     const noiData = {{ results.annual_nois | tojson }};
     const btcfData = {{ results.annual_btcfs | tojson }};
+    const atcfData = {{ results.annual_atcfs | tojson if results.annual_atcfs is defined else '[]' }};
     const years = noiData.map((_, i) => 'Year ' + (i + 1));
 
     new Chart(document.getElementById('noiChart'), {
@@ -300,21 +676,30 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    // Cash flow chart: BTCF + ATCF
+    const cfDatasets = [{
+        label: 'BTCF',
+        data: btcfData,
+        backgroundColor: 'rgba(200, 169, 81, 0.75)',
+        borderColor: '#1B2A4A',
+        borderWidth: 1
+    }];
+    if (atcfData && atcfData.length > 0) {
+        cfDatasets.push({
+            label: 'ATCF',
+            data: atcfData,
+            backgroundColor: 'rgba(40, 167, 69, 0.6)',
+            borderColor: '#28a745',
+            borderWidth: 1
+        });
+    }
+
     new Chart(document.getElementById('cashFlowChart'), {
         type: 'bar',
-        data: {
-            labels: years,
-            datasets: [{
-                label: 'BTCF',
-                data: btcfData,
-                backgroundColor: 'rgba(200, 169, 81, 0.75)',
-                borderColor: '#1B2A4A',
-                borderWidth: 1
-            }]
-        },
+        data: { labels: years, datasets: cfDatasets },
         options: {
             responsive: true,
-            plugins: { legend: { display: false } },
+            plugins: { legend: { labels: { color: '#aaa' } } },
             scales: {
                 y: {
                     ticks: { callback: v => '$' + (v/1000).toFixed(0) + 'K', color: '#aaa' },
@@ -324,6 +709,87 @@ document.addEventListener('DOMContentLoaded', function() {
             }
         }
     });
+
+    // ML Valuation Feature Importance Chart
+    {% if ml_valuation and not ml_valuation.get('error') %}
+    const featureData = {{ ml_valuation.feature_importances | tojson }};
+    const featureLabels = Object.keys(featureData).slice(0, 8);
+    const featureValues = featureLabels.map(k => featureData[k]);
+
+    new Chart(document.getElementById('featureChart'), {
+        type: 'bar',
+        data: {
+            labels: featureLabels.map(l => l.replace(/_/g, ' ')),
+            datasets: [{
+                label: 'Importance',
+                data: featureValues,
+                backgroundColor: 'rgba(200, 169, 81, 0.75)',
+                borderColor: '#C8A951',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            indexAxis: 'y',
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                x: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' } },
+                y: { ticks: { color: '#aaa', font: { size: 10 } }, grid: { display: false } }
+            }
+        }
+    });
+    {% endif %}
+
+    // Rent Prediction Chart
+    {% if rent_prediction and not rent_prediction.get('error') %}
+    const rentLabels = {{ rent_prediction.predicted_rents_per_unit | tojson }}.map((_, i) => 'Year ' + (i + 1));
+    const predictedRents = {{ rent_prediction.predicted_rents_per_unit | tojson }};
+    const predictedRates = {{ rent_prediction.predicted_rates | tojson }};
+
+    new Chart(document.getElementById('rentChart'), {
+        type: 'line',
+        data: {
+            labels: rentLabels,
+            datasets: [
+                {
+                    label: 'Predicted Rent/Unit',
+                    data: predictedRents,
+                    borderColor: '#C8A951',
+                    backgroundColor: 'rgba(200, 169, 81, 0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    yAxisID: 'y'
+                },
+                {
+                    label: 'Growth Rate (%)',
+                    data: predictedRates,
+                    borderColor: '#4dabf7',
+                    borderDash: [5, 5],
+                    fill: false,
+                    tension: 0.3,
+                    yAxisID: 'y1'
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#aaa' } } },
+            scales: {
+                y: {
+                    position: 'left',
+                    ticks: { callback: v => '$' + v.toFixed(0), color: '#aaa' },
+                    grid: { color: '#2a3a4f' }
+                },
+                y1: {
+                    position: 'right',
+                    ticks: { callback: v => v.toFixed(1) + '%', color: '#aaa' },
+                    grid: { display: false }
+                },
+                x: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' } }
+            }
+        }
+    });
+    {% endif %}
 });
 </script>
 {% endblock %}

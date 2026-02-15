@@ -71,7 +71,11 @@ def _table(doc, headers, rows):
     return t
 
 
-def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
+def generate_word(pro_forma: dict, market_data: dict, job_id: str,
+                  ml_valuation: dict = None,
+                  lease_analysis: dict = None,
+                  rent_prediction: dict = None,
+                  sensitivity: dict = None) -> str:
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
@@ -84,6 +88,11 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
     pf = pro_forma["pro_forma"]
     su = pro_forma["sources_uses"]
     rev = pro_forma["reversion"]
+
+    # Determine which optional sections exist
+    has_ml = ml_valuation and not ml_valuation.get("error")
+    has_lease = lease_analysis and not lease_analysis.get("error")
+    has_rent = rent_prediction and not rent_prediction.get("error")
 
     # ===== COVER PAGE =====
     for _ in range(6): doc.add_paragraph()
@@ -126,11 +135,29 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
 
     # ===== TABLE OF CONTENTS =====
     _heading(doc, "Table of Contents", 1)
-    for item in [
-        "1. Executive Summary", "2. Property Overview", "3. Market Analysis",
-        "4. Comparable Sales", "5. Investment Thesis", "6. Financial Summary",
-        "7. Risk Assessment", "8. Capital Structure", "9. Next Steps",
-    ]:
+    toc_items = [
+        "1. Executive Summary",
+        "2. Property Overview",
+        "3. Market Analysis",
+        "4. Comparable Sales",
+        "5. Investment Thesis",
+        "6. Financial Summary",
+        "7. Risk Assessment",
+        "8. Capital Structure",
+    ]
+    section_num = 9
+    if has_ml:
+        toc_items.append(f"{section_num}. ML-Based Property Valuation")
+        section_num += 1
+    if has_lease:
+        toc_items.append(f"{section_num}. Lease Document Analysis")
+        section_num += 1
+    if has_rent:
+        toc_items.append(f"{section_num}. Predictive Rent Growth Model")
+        section_num += 1
+    toc_items.append(f"{section_num}. Next Steps")
+
+    for item in toc_items:
         p = doc.add_paragraph(item)
         p.paragraph_format.space_after = Pt(4)
     doc.add_page_break()
@@ -161,18 +188,24 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
 
     # Returns
     _heading(doc, "Return Metrics", 2)
-    _table(doc, ["Metric", "Value"], [
+    ret_rows = [
         ["Levered IRR", _pct(m.get("levered_irr"))],
+        ["After-Tax IRR", _pct(m.get("after_tax_irr"))],
         ["Unlevered IRR", _pct(m.get("unlevered_irr"))],
         ["Equity Multiple", _x(m.get("equity_multiple"))],
+        ["After-Tax Equity Multiple", _x(m.get("after_tax_equity_multiple"))],
         ["Cash-on-Cash (Year 1)", _pct(m.get("cash_on_cash_yr1"))],
+        ["After-Tax CoC (Year 1)", _pct(m.get("cash_on_cash_yr1_after_tax"))],
         ["DSCR (Year 1)", _x(m.get("dscr_yr1"))],
         ["Stabilized DSCR", _x(m.get("stabilized_dscr"))],
         ["Going-In Cap Rate", _pct(m.get("going_in_cap_rate"))],
         ["Exit Cap Rate", _pct(m.get("exit_cap_rate"))],
         ["Yield on Cost", _pct(m.get("yield_on_cost"))],
         ["Stabilized YOC", _pct(m.get("stabilized_yoc"))],
-    ])
+    ]
+    if m.get("used_variable_growth"):
+        ret_rows.append(["Growth Model", "Variable (ML-predicted year-by-year rates)"])
+    _table(doc, ["Metric", "Value"], ret_rows)
     doc.add_paragraph()
 
     rec_color = RGBColor(0x00, 0x80, 0x00) if recommendation == "BUY" else (
@@ -225,13 +258,38 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
     _heading(doc, "Market Indicators", 2)
     cap_data = market_data.get("cap_rates", {})
     rent_data = market_data.get("rent_trends", {})
-    cap_val = cap_data.get("average_cap_rate", "N/A")
-    rent_val = rent_data.get("average_growth", "N/A")
-    _table(doc, ["Indicator", "Value"], [
-        ["Market Cap Rate", f"{cap_val}%" if isinstance(cap_val, (int, float)) else "N/A"],
-        ["Avg Rent Growth", f"{rent_val}%" if isinstance(rent_val, (int, float)) else "N/A"],
-        ["Data Source", demo.get("source", "defaults")],
-    ])
+    structured = demo.get("structured", {})
+
+    indicator_rows = [
+        ["Market Cap Rate", f"{cap_data.get('average_cap_rate', 'N/A')}%" if isinstance(cap_data.get('average_cap_rate'), (int, float)) else "N/A"],
+        ["Avg Rent Growth (CPI Shelter)", f"{rent_data.get('average_growth', 'N/A')}%" if isinstance(rent_data.get('average_growth'), (int, float)) else "N/A"],
+    ]
+
+    # Add structured data from APIs
+    if structured.get("population"):
+        indicator_rows.append(["State Population", f"{structured['population']:,}"])
+    if structured.get("median_income"):
+        indicator_rows.append(["Median Household Income", f"${structured['median_income']:,}"])
+    if structured.get("median_rent"):
+        indicator_rows.append(["Median Gross Rent", f"${structured['median_rent']:,}/mo"])
+    if structured.get("unemployment_rate"):
+        indicator_rows.append(["Unemployment Rate", f"{structured['unemployment_rate']}%"])
+    if structured.get("vacancy_rate"):
+        indicator_rows.append(["Housing Vacancy Rate", f"{structured['vacancy_rate']}%"])
+
+    indicator_rows.append(["Cap Rate Source", cap_data.get("source", "defaults")])
+    indicator_rows.append(["Demographics Source", demo.get("source", "defaults")])
+    indicator_rows.append(["Rent Trends Source", rent_data.get("source", "defaults")])
+
+    _table(doc, ["Indicator", "Value"], indicator_rows)
+
+    if cap_data.get("treasury_10yr"):
+        doc.add_paragraph()
+        doc.add_paragraph(
+            f"Cap rate derived from 10-Year Treasury ({cap_data['treasury_10yr']}%) plus "
+            f"{cap_data.get('spread_used', 2.0)}% property-type spread. "
+            f"Data sourced from Federal Reserve Economic Data (FRED), Census Bureau ACS, and Bureau of Labor Statistics.",
+        )
 
     search_results = demo.get("search_results", [])
     if search_results:
@@ -278,7 +336,7 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
     if derived["rent_premium_potential"] > 0:
         drivers.append(
             f"Value-add opportunity: ${derived['rent_premium_potential']:,.0f}/unit/mo rent upside "
-            f"(${deal['in_place_rent']:,.0f} in-place → ${deal['market_rent']:,.0f} market) "
+            f"(${deal['in_place_rent']:,.0f} in-place -> ${deal['market_rent']:,.0f} market) "
             f"representing {_cur(derived['rent_premium_potential'] * deal['total_units'] * 12)} in annual revenue upside."
         )
     drivers.append(
@@ -322,24 +380,37 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
     _heading(doc, "NOI & Cash Flow Trajectory", 2)
     noi_rows = []
     for yr in pf[:deal["hold_period_years"]]:
-        noi_rows.append([
+        row = [
             f"Year {yr['year']}", f"${yr['rent_per_unit']:,.0f}",
             f"{yr['occupancy']*100:.0f}%", _cur(yr["noi"]), _cur(yr["btcf"]),
-        ])
-    _table(doc, ["Year", "Rent/Unit", "Occ.", "NOI", "BTCF"], noi_rows)
+        ]
+        if "atcf" in yr:
+            row.append(_cur(yr["atcf"]))
+        noi_rows.append(row)
+    noi_headers = ["Year", "Rent/Unit", "Occ.", "NOI", "BTCF"]
+    if pf and "atcf" in pf[0]:
+        noi_headers.append("ATCF")
+    _table(doc, noi_headers, noi_rows)
     doc.add_paragraph()
 
     # Exit
     _heading(doc, "Exit Summary", 2)
-    _table(doc, ["Item", "Value"], [
+    exit_rows = [
         ["Exit Year", str(rev["exit_year"])],
         ["Forward NOI", _cur(rev["forward_noi"])],
         ["Exit Cap Rate", _pct(rev["exit_cap_rate"])],
         ["Gross Sale Price", _cur(rev["sale_price"])],
         ["Sale Costs", _cur(rev["sale_costs"])],
         ["Loan Payoff", _cur(rev["loan_balance"])],
-        ["Net Sale Proceeds", _cur(rev["net_sale_proceeds"])],
-    ])
+        ["Net Sale Proceeds (Pre-Tax)", _cur(rev["net_sale_proceeds"])],
+    ]
+    if rev.get("total_tax_on_sale"):
+        exit_rows.extend([
+            ["Depreciation Recapture Tax", f"({_cur(rev['depreciation_recapture_tax'])})"],
+            ["Capital Gains Tax", f"({_cur(rev['capital_gains_tax'])})"],
+            ["Net Sale Proceeds (After-Tax)", _cur(rev["net_sale_proceeds_after_tax"])],
+        ])
+    _table(doc, ["Item", "Value"], exit_rows)
     doc.add_page_break()
 
     # ===== 7. RISK ASSESSMENT =====
@@ -408,8 +479,158 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
     ])
     doc.add_page_break()
 
-    # ===== 9. NEXT STEPS =====
-    _heading(doc, "9. Next Steps", 1)
+    # ===== OPTIONAL: ML VALUATION =====
+    section_num = 9
+    if has_ml:
+        _heading(doc, f"{section_num}. ML-Based Property Valuation", 1)
+        section_num += 1
+
+        doc.add_paragraph(
+            f"A GradientBoosting regression model was trained on {ml_valuation['training_samples']} "
+            f"SYNTHETIC property records calibrated to current FRED/Census macro indicators. "
+            f"An 80/20 train/test split yielded a held-out test R² of {ml_valuation.get('test_r2', ml_valuation['r2_score']):.4f} "
+            f"with a test MAPE of {ml_valuation.get('test_mape', 'N/A')}%. "
+            f"The model uses {ml_valuation['features_used']} features."
+        )
+        doc.add_paragraph()
+
+        assessment = ml_valuation["assessment"]
+        p = doc.add_paragraph()
+        p.add_run("ML Assessment: ").bold = True
+        color = RGBColor(0x00, 0x80, 0x00) if assessment == "UNDERVALUED" else (
+            RGBColor(0xCC, 0x00, 0x00) if assessment == "OVERVALUED" else NAVY)
+        r = p.add_run(assessment)
+        r.font.color.rgb = color; r.bold = True; r.font.size = Pt(14)
+        doc.add_paragraph()
+
+        _table(doc, ["Metric", "Value"], [
+            ["Predicted Value/Unit", _cur(ml_valuation["predicted_value_per_unit"])],
+            ["Predicted Total Value", _cur(ml_valuation["predicted_total_value"])],
+            ["Actual Price/Unit", _cur(ml_valuation["actual_price_per_unit"])],
+            ["Premium/Discount", f"{ml_valuation['premium_discount_pct']:.1f}%"],
+            ["Train R²", f"{ml_valuation.get('train_r2', 'N/A')}"],
+            ["Test R² (held-out)", f"{ml_valuation.get('test_r2', ml_valuation['r2_score']):.4f}"],
+            ["Test MAE", _cur(ml_valuation.get("test_mae"))],
+            ["Test MAPE", f"{ml_valuation.get('test_mape', 'N/A')}%"],
+            ["Model Type", ml_valuation["model_type"]],
+            ["Training Data", "Synthetic (calibrated to FRED/Census)"],
+        ])
+        doc.add_paragraph()
+
+        # Top features
+        _heading(doc, "Key Value Drivers (Feature Importance)", 2)
+        top_features = list(ml_valuation["feature_importances"].items())[:8]
+        feat_rows = [[feat.replace("_", " ").title(), f"{imp:.4f}"] for feat, imp in top_features]
+        _table(doc, ["Feature", "Importance"], feat_rows)
+        doc.add_paragraph()
+
+        doc.add_paragraph(
+            "Note: The ML model uses synthetic training data calibrated to real macroeconomic indicators. "
+            "Results should be used as a supplemental data point alongside traditional appraisal methods.",
+        ).runs[0].font.italic = True
+        doc.add_page_break()
+
+    # ===== OPTIONAL: LEASE ANALYSIS =====
+    if has_lease:
+        _heading(doc, f"{section_num}. Lease Document Analysis", 1)
+        section_num += 1
+
+        if lease_analysis.get("summary"):
+            doc.add_paragraph(lease_analysis["summary"])
+            doc.add_paragraph()
+
+        _heading(doc, "Extracted Lease Terms", 2)
+        term_rows = []
+        term_fields = [
+            ("Tenant", "tenant_name"), ("Landlord", "landlord_name"),
+            ("Lease Type", "lease_type"), ("Monthly Rent", "monthly_rent"),
+            ("Annual Rent", "annual_rent"), ("Term (months)", "lease_term_months"),
+            ("Start Date", "lease_start_date"), ("End Date", "lease_end_date"),
+            ("Escalation", "escalation_clause"), ("Annual Escalation", "annual_escalation_pct"),
+            ("Renewal Options", "renewal_options"), ("Security Deposit", "security_deposit"),
+            ("TI Allowance", "ti_allowance"), ("CAM Charges", "cam_charges"),
+        ]
+        for label, key in term_fields:
+            val = lease_analysis.get(key)
+            if val is not None:
+                if isinstance(val, (int, float)) and val > 100:
+                    term_rows.append([label, _cur(val)])
+                elif isinstance(val, float):
+                    term_rows.append([label, f"{val:.2f}%"])
+                else:
+                    term_rows.append([label, str(val)])
+
+        if term_rows:
+            _table(doc, ["Term", "Value"], term_rows)
+            doc.add_paragraph()
+
+        # Key clauses
+        clauses = lease_analysis.get("key_clauses", [])
+        if clauses:
+            _heading(doc, "Key Clauses Identified", 2)
+            for clause in clauses:
+                doc.add_paragraph(clause, style="List Bullet")
+            doc.add_paragraph()
+
+        # Risk flags
+        flags = lease_analysis.get("risk_flags", [])
+        if flags:
+            _heading(doc, "Risk Flags", 2)
+            for flag in flags:
+                p = doc.add_paragraph(style="List Bullet")
+                r = p.add_run(flag)
+                r.font.color.rgb = RGBColor(0xCC, 0x00, 0x00)
+            doc.add_paragraph()
+
+        method = lease_analysis.get("analysis_method", "N/A")
+        p = doc.add_paragraph(f"Analysis method: {method}")
+        p.runs[0].font.italic = True
+        p.runs[0].font.size = Pt(9)
+        doc.add_page_break()
+
+    # ===== OPTIONAL: RENT PREDICTION =====
+    if has_rent:
+        _heading(doc, f"{section_num}. Predictive Rent Growth Model", 1)
+        section_num += 1
+
+        doc.add_paragraph(
+            f"A polynomial regression model (degree=2) was trained on {rent_prediction['training_points']} "
+            f"historical CPI Shelter growth observations from FRED. The model forecasts annual rent growth "
+            f"rates for the {rent_prediction['hold_period']}-year hold period, with predictions clamped to [-2%, +8%]."
+        )
+        doc.add_paragraph()
+
+        _table(doc, ["Metric", "Value"], [
+            ["Method", rent_prediction["method"]],
+            ["Data Source", rent_prediction["data_source"]],
+            ["Historical Avg Growth", f"{rent_prediction['historical_avg']}%"],
+            ["Predicted Avg Growth", f"{rent_prediction['avg_predicted_growth']}%"],
+            ["Current Rent/Unit", _cur(rent_prediction["current_rent"])],
+        ])
+        doc.add_paragraph()
+
+        _heading(doc, "Rent Growth Forecast", 2)
+        forecast_rows = []
+        for i in range(len(rent_prediction["predicted_rates"])):
+            forecast_rows.append([
+                f"Year {i+1}",
+                f"{rent_prediction['predicted_rates'][i]:.2f}%",
+                f"${rent_prediction['predicted_rents_per_unit'][i]:,.0f}",
+                _cur(rent_prediction["predicted_annual_revenue"][i]),
+            ])
+        _table(doc, ["Year", "Growth Rate", "Rent/Unit", "Annual Revenue"], forecast_rows)
+        doc.add_paragraph()
+
+        if rent_prediction.get("historical_rates"):
+            _heading(doc, "Historical Growth Rates", 2)
+            doc.add_paragraph(
+                f"Recent historical CPI Shelter growth rates: "
+                f"{', '.join(f'{r:.1f}%' for r in rent_prediction['historical_rates'][-5:])}"
+            )
+        doc.add_page_break()
+
+    # ===== NEXT STEPS =====
+    _heading(doc, f"{section_num}. Next Steps", 1)
     _heading(doc, "Due Diligence Checklist", 2)
     for item in [
         "Property inspection and condition assessment",
@@ -435,6 +656,16 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str) -> str:
     )
     p.runs[0].font.size = Pt(9)
     p.runs[0].font.italic = True
+
+    if has_ml or has_lease or has_rent:
+        doc.add_paragraph()
+        p = doc.add_paragraph(
+            "AI/ML Disclaimer: Machine learning valuations, NLP lease analysis, and predictive rent "
+            "models use synthetic training data and statistical methods that carry inherent limitations. "
+            "These outputs should supplement, not replace, professional judgment and independent appraisals."
+        )
+        p.runs[0].font.size = Pt(9)
+        p.runs[0].font.italic = True
 
     # Header / footer
     section = doc.sections[0]

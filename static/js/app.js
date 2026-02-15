@@ -76,6 +76,9 @@ document.addEventListener('DOMContentLoaded', function () {
                 planned_capex: '500000',
                 capex_description: 'Unit upgrades',
                 hold_period_years: '7',
+                // Tax defaults
+                tax_rate: '25',
+                land_value_pct: '20',
             };
 
             Object.entries(demo).forEach(([name, value]) => {
@@ -84,6 +87,12 @@ document.addEventListener('DOMContentLoaded', function () {
                 el.value = value;
                 el.classList.remove('is-invalid');
             });
+
+            // Enable ML features for demo
+            const mlCheck = form.querySelector('#mlValuation');
+            const rentCheck = form.querySelector('#rentPrediction');
+            if (mlCheck) mlCheck.checked = true;
+            if (rentCheck) rentCheck.checked = true;
 
             // Brief visual feedback
             demoBtn.innerHTML = '<i class="bi bi-check-lg"></i> Loaded!';

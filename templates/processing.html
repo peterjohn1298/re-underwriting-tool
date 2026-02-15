@@ -15,11 +15,14 @@
 (function() {
     const jobId = "{{ job_id }}";
     const steps = [
-        { pct: 10, text: "Validating inputs..." },
-        { pct: 30, text: "Researching market data..." },
-        { pct: 50, text: "Building financial model..." },
-        { pct: 70, text: "Generating Excel workbook..." },
-        { pct: 85, text: "Generating investment memo..." },
+        { pct: 5,  text: "Validating inputs..." },
+        { pct: 15, text: "Fetching FRED / Census / BLS data..." },
+        { pct: 30, text: "Building financial model..." },
+        { pct: 42, text: "Running ML property valuation..." },
+        { pct: 54, text: "Analyzing lease document (NLP)..." },
+        { pct: 66, text: "Predicting rent growth..." },
+        { pct: 78, text: "Generating Excel workbook..." },
+        { pct: 88, text: "Generating investment memo..." },
         { pct: 95, text: "Finalizing results..." },
     ];
     let step = 0;

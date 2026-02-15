@@ -49,28 +49,56 @@ def build_pro_forma(deal: DealInputs) -> dict:
         )
 
     # --- Value-Add Rent Schedule ---
-    # If market_rent > in_place_rent, ramp rents toward market over first 3 years
     in_place = deal.in_place_rent
     market = deal.market_rent if deal.market_rent > 0 else in_place
     rent_gap = market - in_place
-    ramp_years = min(3, hold)  # ramp to market over 3 years
+    ramp_years = min(3, hold)
+
+    # --- Variable Growth Rates (Fix #1 & #6) ---
+    # Use year-by-year rates from rent predictor if available, else flat rate
+    yearly_growth = deal.yearly_revenue_growth
+    has_variable_growth = len(yearly_growth) > 0
+
+    def _get_revenue_growth(yr_idx):
+        """Get revenue growth rate for a given year (0-indexed)."""
+        if has_variable_growth and yr_idx < len(yearly_growth):
+            return yearly_growth[yr_idx] / 100  # predictor returns percentages
+        return deal.revenue_growth_rate
+
+    # --- Tax / Depreciation ---
+    annual_depreciation = derived.annual_depreciation
+    tax_rate = deal.tax_rate
 
     # --- Annual Pro Forma ---
     pro_forma_years = []
     annual_nois = []
     annual_btcfs = []
+    annual_atcfs = []  # after-tax cash flows
 
     for yr in range(1, years + 1):
+        growth = _get_revenue_growth(yr - 1)
+
         # Rent per unit: ramp from in-place to market, then grow
         if rent_gap > 0 and yr <= ramp_years:
-            # Linear ramp toward market rent
             rent_per_unit = in_place + rent_gap * (yr / ramp_years)
         elif rent_gap > 0:
-            # Past ramp: grow from market rent
-            rent_per_unit = market * (1 + deal.revenue_growth_rate) ** (yr - ramp_years)
+            # Past ramp: grow from market rent using variable or flat rate
+            if has_variable_growth:
+                # Compound from market rent using each year's rate
+                rent_per_unit = market
+                for y in range(ramp_years, yr):
+                    g = _get_revenue_growth(y)
+                    rent_per_unit *= (1 + g)
+            else:
+                rent_per_unit = market * (1 + deal.revenue_growth_rate) ** (yr - ramp_years)
         else:
-            # No value-add: just grow from in-place
-            rent_per_unit = in_place * (1 + deal.revenue_growth_rate) ** (yr - 1)
+            if has_variable_growth:
+                rent_per_unit = in_place
+                for y in range(0, yr - 1):
+                    g = _get_revenue_growth(y)
+                    rent_per_unit *= (1 + g)
+            else:
+                rent_per_unit = in_place * (1 + deal.revenue_growth_rate) ** (yr - 1)
 
         gpr = rent_per_unit * deal.total_units * 12
 
@@ -88,7 +116,12 @@ def build_pro_forma(deal: DealInputs) -> dict:
         exp_growth = (1 + deal.expense_growth_rate) ** (yr - 1)
 
         # Other income grows with revenue
-        other_inc = derived.other_income * (1 + deal.revenue_growth_rate) ** (yr - 1)
+        if has_variable_growth:
+            other_inc = derived.other_income
+            for y in range(0, yr - 1):
+                other_inc *= (1 + _get_revenue_growth(y))
+        else:
+            other_inc = derived.other_income * (1 + deal.revenue_growth_rate) ** (yr - 1)
         egi = gpr * occ + other_inc
 
         # Expenses from derived breakdown, grown annually
@@ -112,9 +145,25 @@ def build_pro_forma(deal: DealInputs) -> dict:
 
         btcf = noi - yr_ds
 
+        # --- Tax Analysis (Fix #9) ---
+        # Interest portion of debt service
+        if amort_schedule and yr * 12 <= len(amort_schedule):
+            start_month = (yr - 1) * 12
+            end_month = yr * 12
+            yr_interest = sum(m["interest"] for m in amort_schedule[start_month:end_month])
+        elif yr <= deal.io_period_years:
+            yr_interest = yr_ds  # all interest during IO
+        else:
+            yr_interest = loan_amount * deal.interest_rate  # approximation
+
+        taxable_income = noi - yr_interest - annual_depreciation
+        tax_liability = max(0, taxable_income * tax_rate)
+        atcf = btcf - tax_liability
+
         row = {
             "year": yr,
             "rent_per_unit": round(rent_per_unit, 0),
+            "revenue_growth_used": round(growth * 100, 2),
             "occupancy": round(occ, 4),
             "gross_potential_rent": round(gpr, 2),
             "vacancy_loss": round(vacancy_loss, 2),
@@ -132,10 +181,17 @@ def build_pro_forma(deal: DealInputs) -> dict:
             "noi": round(noi, 2),
             "debt_service": round(yr_ds, 2),
             "btcf": round(btcf, 2),
+            # Tax fields
+            "interest_expense": round(yr_interest, 2),
+            "depreciation": round(annual_depreciation, 2),
+            "taxable_income": round(taxable_income, 2),
+            "tax_liability": round(tax_liability, 2),
+            "atcf": round(atcf, 2),
         }
         pro_forma_years.append(row)
         annual_nois.append(noi)
         annual_btcfs.append(btcf)
+        annual_atcfs.append(atcf)
 
     # --- Exit / Reversion ---
     exit_year = min(hold, years)
@@ -143,7 +199,7 @@ def build_pro_forma(deal: DealInputs) -> dict:
     if exit_year < len(annual_nois):
         forward_noi = annual_nois[exit_year]
     else:
-        forward_noi = exit_noi * (1 + deal.revenue_growth_rate)
+        forward_noi = exit_noi * (1 + _get_revenue_growth(exit_year))
 
     exit_cap = derived.exit_cap_rate
     if exit_cap <= 0:
@@ -159,6 +215,15 @@ def build_pro_forma(deal: DealInputs) -> dict:
 
     net_sale_proceeds = sale_price - sale_costs - loan_balance_at_exit
 
+    # Tax on sale (depreciation recapture + capital gains)
+    total_depreciation_taken = annual_depreciation * exit_year
+    adjusted_basis = derived.total_project_cost - total_depreciation_taken
+    capital_gain = max(0, sale_price - sale_costs - adjusted_basis)
+    depreciation_recapture = min(capital_gain, total_depreciation_taken) * 0.25  # 25% recapture rate
+    remaining_gain = max(0, capital_gain - total_depreciation_taken) * 0.20  # 20% LTCG
+    tax_on_sale = depreciation_recapture + remaining_gain
+    net_sale_proceeds_after_tax = net_sale_proceeds - tax_on_sale
+
     reversion = {
         "exit_year": exit_year,
         "forward_noi": round(forward_noi, 2),
@@ -167,19 +232,34 @@ def build_pro_forma(deal: DealInputs) -> dict:
         "sale_costs": round(sale_costs, 2),
         "loan_balance": round(loan_balance_at_exit, 2),
         "net_sale_proceeds": round(net_sale_proceeds, 2),
+        # Tax fields
+        "total_depreciation": round(total_depreciation_taken, 2),
+        "adjusted_basis": round(adjusted_basis, 2),
+        "capital_gain": round(capital_gain, 2),
+        "depreciation_recapture_tax": round(depreciation_recapture, 2),
+        "capital_gains_tax": round(remaining_gain, 2),
+        "total_tax_on_sale": round(tax_on_sale, 2),
+        "net_sale_proceeds_after_tax": round(net_sale_proceeds_after_tax, 2),
     }
 
     # --- Return Metrics ---
     equity = derived.equity_required
     total_cost = derived.total_project_cost
 
+    # Before-tax
     levered_cfs = [-equity] + annual_btcfs[:exit_year - 1] + [annual_btcfs[exit_year - 1] + net_sale_proceeds]
     unlevered_cfs = [-total_cost] + annual_nois[:exit_year - 1] + [annual_nois[exit_year - 1] + sale_price - sale_costs]
 
+    # After-tax
+    levered_atcfs = [-equity] + annual_atcfs[:exit_year - 1] + [annual_atcfs[exit_year - 1] + net_sale_proceeds_after_tax]
+
     levered_irr = calc_irr(levered_cfs)
     unlevered_irr = calc_irr(unlevered_cfs)
+    after_tax_irr = calc_irr(levered_atcfs)
     equity_mult = calc_equity_multiple(levered_cfs)
+    after_tax_em = calc_equity_multiple(levered_atcfs)
     coc_yr1 = calc_cash_on_cash(annual_btcfs[0], equity) if equity > 0 else 0
+    coc_yr1_at = calc_cash_on_cash(annual_atcfs[0], equity) if equity > 0 else 0
     dscr_yr1 = calc_dscr(annual_nois[0], annual_ds) if annual_ds > 0 else 0
     yoc = calc_yield_on_cost(annual_nois[0], total_cost)
 
@@ -191,8 +271,11 @@ def build_pro_forma(deal: DealInputs) -> dict:
     metrics = {
         "levered_irr": levered_irr,
         "unlevered_irr": unlevered_irr,
+        "after_tax_irr": after_tax_irr,
         "equity_multiple": equity_mult,
+        "after_tax_equity_multiple": after_tax_em,
         "cash_on_cash_yr1": coc_yr1,
+        "cash_on_cash_yr1_after_tax": coc_yr1_at,
         "dscr_yr1": dscr_yr1,
         "yield_on_cost": yoc,
         "stabilized_yoc": stabilized_yoc,
@@ -201,6 +284,7 @@ def build_pro_forma(deal: DealInputs) -> dict:
         "exit_cap_rate": exit_cap,
         "price_per_unit": derived.price_per_unit,
         "price_per_sf": derived.price_per_sf,
+        "used_variable_growth": has_variable_growth,
     }
 
     # Annual amortization summary
@@ -230,6 +314,8 @@ def build_pro_forma(deal: DealInputs) -> dict:
         "metrics": metrics,
         "levered_cash_flows": [round(cf, 2) for cf in levered_cfs],
         "unlevered_cash_flows": [round(cf, 2) for cf in unlevered_cfs],
+        "after_tax_cash_flows": [round(cf, 2) for cf in levered_atcfs],
         "annual_nois": [round(n, 2) for n in annual_nois],
         "annual_btcfs": [round(b, 2) for b in annual_btcfs],
+        "annual_atcfs": [round(a, 2) for a in annual_atcfs],
     }

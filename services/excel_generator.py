@@ -1,4 +1,4 @@
-"""Generate institutional-grade Excel workbook with 8 tabs and charts."""
+"""Generate institutional-grade Excel workbook with up to 11 tabs and charts."""
 
 import os
 from openpyxl import Workbook
@@ -64,7 +64,11 @@ def _widths(ws, max_col, w=15):
         ws.column_dimensions[get_column_letter(col)].width = w
 
 
-def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
+def generate_excel(pro_forma: dict, market_data: dict, job_id: str,
+                   ml_valuation: dict = None,
+                   lease_analysis: dict = None,
+                   rent_prediction: dict = None,
+                   sensitivity: dict = None) -> str:
     wb = Workbook()
     inp = pro_forma["inputs"]
     deal = inp["deal"]
@@ -116,9 +120,12 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
 
     ret_items = [
         ("Levered IRR", metrics["levered_irr"], True),
+        ("After-Tax IRR", metrics.get("after_tax_irr"), True),
         ("Unlevered IRR", metrics["unlevered_irr"], True),
         ("Equity Multiple", metrics["equity_multiple"], False),
+        ("After-Tax Equity Multiple", metrics.get("after_tax_equity_multiple"), False),
         ("Cash-on-Cash (Yr 1)", metrics["cash_on_cash_yr1"], True),
+        ("After-Tax CoC (Yr 1)", metrics.get("cash_on_cash_yr1_after_tax"), True),
         ("DSCR (Yr 1)", metrics["dscr_yr1"], False),
         ("Stabilized DSCR", metrics["stabilized_dscr"], False),
         ("Yield on Cost", metrics["yield_on_cost"], True),
@@ -219,6 +226,7 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
 
     rows = [
         ("Rent / Unit ($/mo)", "rent_per_unit", CURRENCY_FMT),
+        ("Revenue Growth Used", "revenue_growth_used", '0.00"%"'),
         ("Occupancy", "occupancy", PCT_FMT),
         ("Gross Potential Rent", "gross_potential_rent", CURRENCY_FMT),
         ("Less: Vacancy", "vacancy_loss", CURRENCY_FMT),
@@ -238,8 +246,15 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
         ("Net Operating Income", "noi", CURRENCY_FMT),
         ("Debt Service", "debt_service", CURRENCY_FMT),
         ("Before-Tax Cash Flow", "btcf", CURRENCY_FMT),
+        ("", None, None),
+        ("Interest Expense", "interest_expense", CURRENCY_FMT),
+        ("Depreciation", "depreciation", CURRENCY_FMT),
+        ("Taxable Income", "taxable_income", CURRENCY_FMT),
+        ("Tax Liability", "tax_liability", CURRENCY_FMT),
+        ("After-Tax Cash Flow", "atcf", CURRENCY_FMT),
     ]
-    bold_rows = {"Effective Gross Income", "Total Expenses", "Net Operating Income", "Before-Tax Cash Flow"}
+    bold_rows = {"Effective Gross Income", "Total Expenses", "Net Operating Income",
+                 "Before-Tax Cash Flow", "After-Tax Cash Flow"}
 
     for i, (label, key, fmt) in enumerate(rows):
         r += 1
@@ -351,15 +366,19 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
     ws6.sheet_properties.tabColor = DARK_BLUE
     _title(ws6, 1, 1, "Sensitivity Analysis")
 
-    from models.metrics import sensitivity_table_exit_cap
-    exit_sens = sensitivity_table_exit_cap(
-        base_noi_at_exit=rev["forward_noi"],
-        base_exit_cap=rev["exit_cap_rate"],
-        equity_invested=derived["equity_required"],
-        annual_cfs=pro_forma["annual_btcfs"][:rev["exit_year"]],
-        sale_costs_pct=deal["sale_costs_pct"],
-        loan_balance_at_exit=rev["loan_balance"],
-    )
+    # Use pre-computed sensitivity data if available, else compute exit cap only
+    if sensitivity and "exit_cap" in sensitivity:
+        exit_sens = sensitivity["exit_cap"]
+    else:
+        from models.metrics import sensitivity_table_exit_cap
+        exit_sens = sensitivity_table_exit_cap(
+            base_noi_at_exit=rev["forward_noi"],
+            base_exit_cap=rev["exit_cap_rate"],
+            equity_invested=derived["equity_required"],
+            annual_cfs=pro_forma["annual_btcfs"][:rev["exit_year"]],
+            sale_costs_pct=deal["sale_costs_pct"],
+            loan_balance_at_exit=rev["loan_balance"],
+        )
 
     r = 3
     ws6.cell(row=r, column=1, value="Exit Cap Rate Sensitivity").font = SUBHEADER_FONT
@@ -388,6 +407,83 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
         ws6.cell(row=r, column=4, value=row_data["equity_multiple"])
         _data_row(ws6, r, len(sh), alt=(i % 2 == 0))
         r += 1
+
+    # Interest Rate Sensitivity (Fix #7)
+    if sensitivity and "interest_rate" in sensitivity:
+        r += 2
+        ws6.cell(row=r, column=1, value="Interest Rate Sensitivity").font = SUBHEADER_FONT
+        r += 1
+        sh2 = ["Interest Rate", "IRR", "Equity Multiple", "DSCR"]
+        for c_idx, h in enumerate(sh2, 1):
+            ws6.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws6, r, len(sh2))
+        r += 1
+        for i, row_data in enumerate(sensitivity["interest_rate"]):
+            ws6.cell(row=r, column=1, value=row_data["interest_rate"]/100).number_format = PCT_FMT
+            irr_c = ws6.cell(row=r, column=2)
+            if row_data["irr"] is not None:
+                irr_c.value = row_data["irr"] / 100
+                irr_c.number_format = PCT_FMT
+            else:
+                irr_c.value = "N/A"
+            ws6.cell(row=r, column=3, value=row_data.get("equity_multiple"))
+            dscr_c = ws6.cell(row=r, column=4, value=row_data.get("dscr"))
+            if row_data.get("dscr") and row_data["dscr"] < 1.0:
+                dscr_c.fill = RED_FILL
+            elif row_data.get("dscr") and row_data["dscr"] < 1.25:
+                dscr_c.fill = YELLOW_FILL
+            _data_row(ws6, r, len(sh2), alt=(i % 2 == 0))
+            r += 1
+
+    # Rent Growth Sensitivity (Fix #7)
+    if sensitivity and "rent_growth" in sensitivity:
+        r += 2
+        ws6.cell(row=r, column=1, value="Rent Growth Sensitivity").font = SUBHEADER_FONT
+        r += 1
+        sh3 = ["Rent Growth", "IRR", "Equity Multiple", "Stab. YOC"]
+        for c_idx, h in enumerate(sh3, 1):
+            ws6.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws6, r, len(sh3))
+        r += 1
+        for i, row_data in enumerate(sensitivity["rent_growth"]):
+            ws6.cell(row=r, column=1, value=row_data["rent_growth"]/100).number_format = PCT_FMT
+            irr_c = ws6.cell(row=r, column=2)
+            if row_data["irr"] is not None:
+                irr_c.value = row_data["irr"] / 100
+                irr_c.number_format = PCT_FMT
+            else:
+                irr_c.value = "N/A"
+            ws6.cell(row=r, column=3, value=row_data.get("equity_multiple"))
+            yoc_c = ws6.cell(row=r, column=4)
+            if row_data.get("stabilized_yoc") is not None:
+                yoc_c.value = row_data["stabilized_yoc"] / 100
+                yoc_c.number_format = PCT_FMT
+            _data_row(ws6, r, len(sh3), alt=(i % 2 == 0))
+            r += 1
+
+    # Purchase Price Sensitivity
+    if sensitivity and "purchase_price" in sensitivity:
+        r += 2
+        ws6.cell(row=r, column=1, value="Purchase Price Sensitivity").font = SUBHEADER_FONT
+        r += 1
+        sh4 = ["Price Change", "Purchase Price", "IRR", "Equity Multiple"]
+        for c_idx, h in enumerate(sh4, 1):
+            ws6.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws6, r, len(sh4))
+        r += 1
+        for i, row_data in enumerate(sensitivity["purchase_price"]):
+            ws6.cell(row=r, column=1, value=row_data["price_change"]).font = NORMAL_FONT
+            ws6.cell(row=r, column=2, value=row_data["purchase_price"]).number_format = CURRENCY_FMT
+            irr_c = ws6.cell(row=r, column=3)
+            if row_data["irr"] is not None:
+                irr_c.value = row_data["irr"] / 100
+                irr_c.number_format = PCT_FMT
+            else:
+                irr_c.value = "N/A"
+            ws6.cell(row=r, column=4, value=row_data.get("equity_multiple"))
+            _data_row(ws6, r, len(sh4), alt=(i % 2 == 0))
+            r += 1
+
     _widths(ws6, 4)
 
     # ========== TAB 7: Market ==========
@@ -408,26 +504,66 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
     ws7.merge_cells(start_row=r, start_column=1, end_row=r, end_column=4)
     r += 2
 
-    cap_data = market_data.get("cap_rates", {})
-    ws7.cell(row=r, column=1, value="Market Cap Rate").font = NORMAL_FONT
-    avg_cap = cap_data.get("average_cap_rate", "N/A")
-    if isinstance(avg_cap, (int, float)):
-        ws7.cell(row=r, column=2, value=avg_cap/100).number_format = PCT_FMT
-    else:
-        ws7.cell(row=r, column=2, value=avg_cap)
+    # Structured market data from APIs
+    ws7.cell(row=r, column=1, value="Market Indicators").font = SUBHEADER_FONT
+    ws7.cell(row=r, column=1).fill = HEADER_FILL
+    ws7.cell(row=r, column=1).font = HEADER_FONT
+    ws7.cell(row=r, column=2).fill = HEADER_FILL
+    ws7.cell(row=r, column=3).fill = HEADER_FILL
     r += 1
 
+    cap_data = market_data.get("cap_rates", {})
     rent_data = market_data.get("rent_trends", {})
-    ws7.cell(row=r, column=1, value="Avg Rent Growth").font = NORMAL_FONT
-    avg_rent = rent_data.get("average_growth", "N/A")
-    if isinstance(avg_rent, (int, float)):
-        ws7.cell(row=r, column=2, value=avg_rent/100).number_format = PCT_FMT
-    else:
-        ws7.cell(row=r, column=2, value=avg_rent)
+    structured = demo.get("structured", {})
+
+    indicators = [
+        ("Market Cap Rate", cap_data.get("average_cap_rate"), "%"),
+        ("10-Year Treasury", cap_data.get("treasury_10yr"), "%"),
+        ("30-Year Mortgage", cap_data.get("mortgage_30yr") if "mortgage_30yr" in cap_data else None, "%"),
+        ("Avg Rent Growth (CPI Shelter)", rent_data.get("average_growth"), "%"),
+        ("State Population", structured.get("population"), "#"),
+        ("Median Household Income", structured.get("median_income"), "$"),
+        ("Median Gross Rent", structured.get("median_rent"), "$"),
+        ("Unemployment Rate", structured.get("unemployment_rate"), "%"),
+        ("Housing Vacancy Rate", structured.get("vacancy_rate"), "%"),
+        ("Renter-Occupied %", structured.get("renter_pct"), "%"),
+    ]
+
+    for label, val, fmt_type in indicators:
+        ws7.cell(row=r, column=1, value=label).font = NORMAL_FONT
+        vc = ws7.cell(row=r, column=2)
+        if val is not None:
+            if fmt_type == "%":
+                vc.value = val / 100
+                vc.number_format = PCT_FMT
+            elif fmt_type == "$":
+                vc.value = val
+                vc.number_format = CURRENCY_FMT
+            else:
+                vc.value = val
+                vc.number_format = '#,##0'
+        else:
+            vc.value = "N/A"
+        vc.font = NORMAL_FONT
+        _data_row(ws7, r, 2)
+        r += 1
+
+    # Data sources
+    r += 1
+    ws7.cell(row=r, column=1, value="Data Sources").font = SUBHEADER_FONT
+    r += 1
+    sources = [
+        f"Cap Rates: {cap_data.get('source', 'N/A')}",
+        f"Demographics: {demo.get('source', 'N/A')}",
+        f"Rent Trends: {rent_data.get('source', 'N/A')}",
+    ]
+    for src in sources:
+        ws7.cell(row=r, column=1, value=src).font = NORMAL_FONT
+        r += 1
 
     # NOI line chart
     if pf:
-        r += 2
+        r += 1
         ws7.cell(row=r, column=1, value="Year")
         ws7.cell(row=r, column=2, value="NOI")
         for i, yr in enumerate(pf):
@@ -507,6 +643,210 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str) -> str:
             r += 1
         r += 1
     _widths(ws8, 2, 20)
+
+    # ========== TAB 9: ML Valuation (conditional) ==========
+    if ml_valuation and not ml_valuation.get("error"):
+        ws9 = wb.create_sheet("ML Valuation")
+        ws9.sheet_properties.tabColor = GOLD
+        _title(ws9, 1, 1, "ML-Based Property Valuation")
+
+        r = 3
+        ws9.cell(row=r, column=1, value="Assessment").font = SUBHEADER_FONT
+        ws9.cell(row=r, column=2, value=ml_valuation["assessment"]).font = Font(name="Calibri", bold=True, size=14, color=GOLD)
+        r += 2
+
+        val_items = [
+            ("Predicted Value/Unit", ml_valuation["predicted_value_per_unit"], CURRENCY_FMT),
+            ("Predicted Total Value", ml_valuation["predicted_total_value"], CURRENCY_FMT),
+            ("Actual Price/Unit", ml_valuation["actual_price_per_unit"], CURRENCY_FMT),
+            ("Premium/Discount", ml_valuation["premium_discount_pct"] / 100, PCT_FMT),
+            ("Train R² Score", ml_valuation.get("train_r2", ml_valuation.get("r2_score")), '0.0000'),
+            ("Test R² Score (held-out)", ml_valuation.get("test_r2"), '0.0000'),
+            ("Test MAE ($)", ml_valuation.get("test_mae"), CURRENCY_FMT),
+            ("Test MAPE (%)", ml_valuation.get("test_mape"), '0.0"%"'),
+            ("Model Type", ml_valuation["model_type"], None),
+            ("Training Samples", ml_valuation["training_samples"], '#,##0'),
+            ("Test Samples", ml_valuation.get("test_samples", 100), '#,##0'),
+            ("Features Used", ml_valuation["features_used"], None),
+            ("Data Note", "Trained on SYNTHETIC data calibrated to FRED/Census", None),
+        ]
+        for label, val, fmt in val_items:
+            ws9.cell(row=r, column=1, value=label).font = NORMAL_FONT
+            c = ws9.cell(row=r, column=2, value=val)
+            c.font = NORMAL_FONT
+            if fmt:
+                c.number_format = fmt
+            r += 1
+
+        # Feature importances
+        r += 1
+        ws9.cell(row=r, column=1, value="Feature Importances").font = SUBHEADER_FONT
+        r += 1
+        for c_idx, h in enumerate(["Feature", "Importance"], 1):
+            ws9.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws9, r, 2)
+        r += 1
+        for feat, imp in ml_valuation["feature_importances"].items():
+            ws9.cell(row=r, column=1, value=feat.replace("_", " ").title()).font = NORMAL_FONT
+            ws9.cell(row=r, column=2, value=imp).number_format = '0.0000'
+            _data_row(ws9, r, 2)
+            r += 1
+
+        _widths(ws9, 2, 22)
+
+    # ========== TAB 10: Lease Analysis (conditional) ==========
+    if lease_analysis and not lease_analysis.get("error"):
+        ws10 = wb.create_sheet("Lease Analysis")
+        ws10.sheet_properties.tabColor = GOLD
+        _title(ws10, 1, 1, "Lease Document Analysis")
+
+        r = 3
+        if lease_analysis.get("summary"):
+            c = ws10.cell(row=r, column=1, value=lease_analysis["summary"])
+            c.font = NORMAL_FONT
+            c.alignment = Alignment(wrap_text=True)
+            ws10.merge_cells(start_row=r, start_column=1, end_row=r, end_column=3)
+            r += 2
+
+        ws10.cell(row=r, column=1, value="Key Lease Terms").font = SUBHEADER_FONT
+        r += 1
+        for c_idx, h in enumerate(["Term", "Value"], 1):
+            ws10.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws10, r, 2)
+        r += 1
+
+        term_fields = [
+            ("Tenant", "tenant_name"),
+            ("Landlord", "landlord_name"),
+            ("Lease Type", "lease_type"),
+            ("Monthly Rent", "monthly_rent"),
+            ("Annual Rent", "annual_rent"),
+            ("Rent/SF", "rent_per_sf"),
+            ("Term (months)", "lease_term_months"),
+            ("Start Date", "lease_start_date"),
+            ("End Date", "lease_end_date"),
+            ("Escalation", "escalation_clause"),
+            ("Annual Escalation %", "annual_escalation_pct"),
+            ("Renewal Options", "renewal_options"),
+            ("Security Deposit", "security_deposit"),
+            ("TI Allowance", "ti_allowance"),
+            ("CAM Charges", "cam_charges"),
+            ("Permitted Use", "permitted_use"),
+        ]
+        for label, key in term_fields:
+            val = lease_analysis.get(key)
+            if val is not None:
+                ws10.cell(row=r, column=1, value=label).font = NORMAL_FONT
+                c = ws10.cell(row=r, column=2, value=val)
+                c.font = NORMAL_FONT
+                if isinstance(val, (int, float)) and val > 100:
+                    c.number_format = CURRENCY_FMT
+                _data_row(ws10, r, 2)
+                r += 1
+
+        # Key clauses
+        clauses = lease_analysis.get("key_clauses", [])
+        if clauses:
+            r += 1
+            ws10.cell(row=r, column=1, value="Key Clauses").font = SUBHEADER_FONT
+            r += 1
+            for clause in clauses:
+                ws10.cell(row=r, column=1, value=clause).font = NORMAL_FONT
+                r += 1
+
+        # Risk flags
+        flags = lease_analysis.get("risk_flags", [])
+        if flags:
+            r += 1
+            ws10.cell(row=r, column=1, value="Risk Flags").font = Font(name="Calibri", bold=True, size=11, color="CC0000")
+            r += 1
+            for flag in flags:
+                ws10.cell(row=r, column=1, value=flag).font = NORMAL_FONT
+                ws10.cell(row=r, column=1).fill = PatternFill(start_color="FFF2CC", end_color="FFF2CC", fill_type="solid")
+                r += 1
+
+        ws10.cell(row=r+1, column=1, value=f"Analysis method: {lease_analysis.get('analysis_method', 'N/A')}").font = Font(name="Calibri", size=9, italic=True)
+        _widths(ws10, 3, 25)
+
+    # ========== TAB 11: Rent Forecast (conditional) ==========
+    if rent_prediction and not rent_prediction.get("error"):
+        ws11 = wb.create_sheet("Rent Forecast")
+        ws11.sheet_properties.tabColor = GOLD
+        _title(ws11, 1, 1, "Predictive Rent Growth Model")
+
+        r = 3
+        meta = [
+            ("Method", rent_prediction["method"]),
+            ("Data Source", rent_prediction["data_source"]),
+            ("Training Points", rent_prediction["training_points"]),
+            ("Hold Period", f"{rent_prediction['hold_period']} years"),
+            ("Current Rent/Unit", rent_prediction["current_rent"]),
+            ("Avg Predicted Growth", f"{rent_prediction['avg_predicted_growth']}%"),
+            ("Historical Avg Growth", f"{rent_prediction['historical_avg']}%"),
+        ]
+        for label, val in meta:
+            ws11.cell(row=r, column=1, value=label).font = SUBHEADER_FONT
+            c = ws11.cell(row=r, column=2, value=val)
+            c.font = NORMAL_FONT
+            if isinstance(val, (int, float)) and val > 100:
+                c.number_format = CURRENCY_FMT
+            r += 1
+
+        # Forecast table
+        r += 1
+        hold = rent_prediction["hold_period"]
+        hdrs = [""] + [f"Year {i+1}" for i in range(hold)]
+        for c_idx, h in enumerate(hdrs, 1):
+            ws11.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws11, r, len(hdrs))
+        r += 1
+
+        ws11.cell(row=r, column=1, value="Growth Rate").font = NORMAL_FONT
+        for i, rate in enumerate(rent_prediction["predicted_rates"]):
+            ws11.cell(row=r, column=i+2, value=rate/100).number_format = PCT_FMT
+        _data_row(ws11, r, len(hdrs))
+        r += 1
+
+        ws11.cell(row=r, column=1, value="Rent/Unit").font = NORMAL_FONT
+        for i, rent in enumerate(rent_prediction["predicted_rents_per_unit"]):
+            ws11.cell(row=r, column=i+2, value=rent).number_format = CURRENCY_FMT
+        _data_row(ws11, r, len(hdrs), alt=True)
+        r += 1
+
+        ws11.cell(row=r, column=1, value="Annual Revenue").font = SUBHEADER_FONT
+        for i, rev_val in enumerate(rent_prediction["predicted_annual_revenue"]):
+            ws11.cell(row=r, column=i+2, value=rev_val).number_format = CURRENCY_FMT
+        r += 1
+
+        # Historical rates
+        r += 1
+        ws11.cell(row=r, column=1, value="Historical Growth Rates (Recent)").font = SUBHEADER_FONT
+        r += 1
+        for i, rate in enumerate(rent_prediction["historical_rates"]):
+            ws11.cell(row=r, column=1, value=f"Period {i+1}").font = NORMAL_FONT
+            ws11.cell(row=r, column=2, value=rate/100).number_format = PCT_FMT
+            r += 1
+
+        # Rent forecast chart
+        r += 1
+        chart_start = r
+        ws11.cell(row=r, column=1, value="Year")
+        ws11.cell(row=r, column=2, value="Predicted Rent/Unit")
+        for i, rent in enumerate(rent_prediction["predicted_rents_per_unit"]):
+            ws11.cell(row=r+1+i, column=1, value=f"Year {i+1}")
+            ws11.cell(row=r+1+i, column=2, value=rent)
+
+        chart = LineChart()
+        chart.title = "Predicted Rent Growth"
+        chart.style = 10
+        chart.width = 18
+        chart.height = 10
+        chart.add_data(Reference(ws11, min_col=2, min_row=chart_start, max_row=chart_start+hold), titles_from_data=True)
+        chart.set_categories(Reference(ws11, min_col=1, min_row=chart_start+1, max_row=chart_start+hold))
+        ws11.add_chart(chart, f"D3")
+
+        _widths(ws11, len(hdrs), 14)
+        ws11.column_dimensions["A"].width = 22
 
     # Save
     filename = f"underwriting_{job_id}.xlsx"

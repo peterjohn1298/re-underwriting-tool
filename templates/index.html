@@ -10,7 +10,7 @@
             </button>
         </div>
 
-        <form id="underwritingForm" method="POST" action="/api/analyze">
+        <form id="underwritingForm" method="POST" action="/api/analyze" enctype="multipart/form-data">
             <div class="card bg-dark-card">
                 <div class="card-header bg-navy">
                     <h5 class="mb-0"><i class="bi bi-building"></i> Deal Sheet</h5>
@@ -133,6 +133,44 @@
                 </div>
             </div>
 
+            <!-- AI/ML Features Section -->
+            <div class="card bg-dark-card mt-3">
+                <div class="card-header bg-navy">
+                    <h5 class="mb-0"><i class="bi bi-robot"></i> AI / ML Features</h5>
+                </div>
+                <div class="card-body">
+                    <div class="row g-3">
+                        <!-- Lease PDF Upload (Fix #8: multiple) -->
+                        <div class="col-md-6">
+                            <label class="form-label">Upload Lease Documents (PDF)
+                                <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="AI will extract key lease terms, risk flags, and provide a summary. Upload multiple for multi-tenant properties."></i>
+                            </label>
+                            <input type="file" class="form-control" name="lease_pdf" accept=".pdf" multiple>
+                            <small class="text-muted">Optional — Claude AI analyzes terms. Select multiple PDFs for multi-tenant.</small>
+                        </div>
+
+                        <!-- ML Checkboxes -->
+                        <div class="col-md-6">
+                            <label class="form-label d-block">Enable AI/ML Analysis</label>
+                            <div class="form-check form-switch mb-2">
+                                <input class="form-check-input" type="checkbox" name="enable_ml_valuation" id="mlValuation">
+                                <label class="form-check-label" for="mlValuation">
+                                    <i class="bi bi-graph-up"></i> ML Property Valuation
+                                    <small class="text-muted d-block">GradientBoosting model predicts fair value</small>
+                                </label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="enable_rent_prediction" id="rentPrediction">
+                                <label class="form-check-label" for="rentPrediction">
+                                    <i class="bi bi-graph-up-arrow"></i> Predictive Rent Growth
+                                    <small class="text-muted d-block">Feeds variable growth rates into the pro forma</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
             <!-- Optional: Advanced Assumptions (collapsed) -->
             <div class="accordion mt-3" id="advancedAccordion">
                 <div class="accordion-item bg-dark-card border-secondary">
@@ -191,6 +229,52 @@
                                 <div class="col-md-3">
                                     <label class="form-label">IO Period (Yr)</label>
                                     <input type="number" class="form-control" name="io_period_years" value="0" min="0" max="10">
+                                </div>
+
+                                <!-- Fix #9: Tax inputs -->
+                                <div class="col-12"><hr class="border-secondary my-1">
+                                    <small class="text-muted fw-bold">Tax Assumptions</small>
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Tax Rate (%)
+                                        <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Marginal income tax rate for after-tax analysis"></i>
+                                    </label>
+                                    <input type="number" class="form-control" name="tax_rate" value="25" step="1" min="0" max="50">
+                                </div>
+                                <div class="col-md-3">
+                                    <label class="form-label">Land Value (%)
+                                        <i class="bi bi-info-circle" data-bs-toggle="tooltip" title="Land % of purchase price (not depreciable)"></i>
+                                    </label>
+                                    <input type="number" class="form-control" name="land_value_pct" value="20" step="1" min="0" max="50">
+                                </div>
+
+                                <!-- Fix #10: Expense category overrides -->
+                                <div class="col-12"><hr class="border-secondary my-1">
+                                    <small class="text-muted fw-bold">Expense Category Overrides (leave blank to auto-derive from NOI)</small>
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Property Tax ($/yr)</label>
+                                    <input type="number" class="form-control" name="override_property_tax" min="0" step="1" placeholder="Auto">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Insurance ($/yr)</label>
+                                    <input type="number" class="form-control" name="override_insurance" min="0" step="1" placeholder="Auto">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Utilities ($/yr)</label>
+                                    <input type="number" class="form-control" name="override_utilities" min="0" step="1" placeholder="Auto">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Repairs & Maintenance ($/yr)</label>
+                                    <input type="number" class="form-control" name="override_repairs" min="0" step="1" placeholder="Auto">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">General & Admin ($/yr)</label>
+                                    <input type="number" class="form-control" name="override_general_admin" min="0" step="1" placeholder="Auto">
+                                </div>
+                                <div class="col-md-4">
+                                    <label class="form-label">Other Expenses ($/yr)</label>
+                                    <input type="number" class="form-control" name="override_other_expenses" min="0" step="1" placeholder="Auto">
                                 </div>
                             </div>
                         </div>

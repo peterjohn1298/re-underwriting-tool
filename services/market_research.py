@@ -1,158 +1,225 @@
-"""Market research via web scraping with graceful fallbacks."""
+"""Market research using FRED, Census, and BLS APIs with graceful fallbacks."""
 
-import re
 import logging
-import requests
-from bs4 import BeautifulSoup
+
+from services.api_clients.fred_client import FREDClient
+from services.api_clients.census_client import CensusClient
+from services.api_clients.bls_client import BLSClient
 
 logger = logging.getLogger(__name__)
 
-HEADERS = {
-    "User-Agent": (
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-        "AppleWebKit/537.36 (KHTML, like Gecko) "
-        "Chrome/120.0.0.0 Safari/537.36"
-    )
-}
-TIMEOUT = 10
-
-# In-memory cache for session
 _cache: dict[str, dict] = {}
 
+CAP_RATE_SPREADS = {
+    "Multifamily": 1.75,
+    "Office": 2.50,
+    "Retail": 2.25,
+    "Industrial": 2.00,
+}
 
-def _google_search(query: str, num_results: int = 5) -> list[dict]:
-    """Perform a Google search and return titles + snippets."""
-    try:
-        url = "https://www.google.com/search"
-        params = {"q": query, "num": num_results}
-        resp = requests.get(url, params=params, headers=HEADERS, timeout=TIMEOUT)
-        resp.raise_for_status()
-        soup = BeautifulSoup(resp.text, "html.parser")
+FALLBACK_CAP_RATES = {
+    "Multifamily": 5.25,
+    "Office": 6.50,
+    "Retail": 6.25,
+    "Industrial": 5.75,
+}
 
-        results = []
-        for div in soup.select("div.g, div[data-hveid]"):
-            title_el = div.select_one("h3")
-            snippet_el = div.select_one("div.VwiC3b, span.aCOpRe, div[data-sncf]")
-            if title_el:
-                results.append({
-                    "title": title_el.get_text(strip=True),
-                    "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-                })
-        return results[:num_results]
-    except Exception as e:
-        logger.warning(f"Google search failed for '{query}': {e}")
-        return []
-
-
-def _extract_numbers(text: str) -> list[float]:
-    """Extract numbers (including decimals and percentages) from text."""
-    matches = re.findall(r'[\d,]+\.?\d*%?', text)
-    nums = []
-    for m in matches:
-        try:
-            clean = m.replace(",", "").replace("%", "")
-            nums.append(float(clean))
-        except ValueError:
-            pass
-    return nums
+fred = FREDClient()
+census = CensusClient()
+bls = BLSClient()
 
 
 def search_comps(property_type: str, city: str, state: str) -> dict:
-    """Search for comparable sales data."""
+    """Generate comparable sales calibrated to actual city-level market data.
+
+    Fix #4: Comps are synthetic but explicitly labeled and better calibrated
+    using city-level Census data when available.
+    """
     cache_key = f"comps_{property_type}_{city}_{state}"
     if cache_key in _cache:
         return _cache[cache_key]
 
-    query = f"{property_type} commercial real estate recent sales {city} {state} price per unit cap rate 2024 2025"
-    results = _google_search(query)
+    # Use city-level Census data for calibration
+    census_data = census.get_all_demographics(city, state)
+    median_rent = census_data.get("median_rent")
+    median_income = census_data.get("median_income")
+    data_level = census_data.get("level", "unknown")
+
+    base_ppu = _estimate_price_per_unit(property_type, median_rent, median_income)
+    base_cap = FALLBACK_CAP_RATES.get(property_type, 6.0)
+
+    import random
+    random.seed(hash(f"{city}{state}{property_type}"))
 
     comps = []
-    for r in results:
-        snippet = r["snippet"]
-        numbers = _extract_numbers(snippet)
+    for i in range(5):
+        variation = random.uniform(-0.12, 0.12)
+        cap_var = random.uniform(-0.5, 0.5)
+        units = random.choice([60, 80, 95, 110, 120, 150, 175, 200])
         comps.append({
-            "source": r["title"],
-            "details": snippet,
-            "extracted_numbers": numbers,
+            "name": f"{city} {property_type} Comp {i+1}",
+            "price_per_unit": int(base_ppu * (1 + variation)),
+            "cap_rate": round(base_cap + cap_var, 2),
+            "year": random.choice([2023, 2024, 2024, 2025]),
+            "units": units,
+            "synthetic": True,  # Fix #4: Explicit labeling
         })
 
     data = {
-        "comps": comps if comps else _default_comps(property_type, city),
-        "source": "web_search" if comps else "defaults",
+        "comps": comps,
+        "source": "synthetic_calibrated",
+        "data_level": data_level,
+        "note": (
+            f"Comps are SYNTHETIC estimates calibrated to {data_level}-level "
+            f"Census data (median rent: ${median_rent:,}/mo, median income: "
+            f"${median_income:,}). They are NOT real transaction records. "
+            f"Use actual broker comps for investment decisions."
+            if median_rent and median_income else
+            "Comps are synthetic defaults. No Census data available for calibration."
+        ),
+        "calibration_data": {
+            "median_rent": median_rent,
+            "median_income": median_income,
+            "data_level": data_level,
+        },
     }
     _cache[cache_key] = data
     return data
 
 
 def search_cap_rates(property_type: str, city: str) -> dict:
-    """Search for market cap rates."""
+    """Derive market cap rates from FRED Treasury data + property-type spread."""
     cache_key = f"cap_rates_{property_type}_{city}"
     if cache_key in _cache:
         return _cache[cache_key]
 
-    query = f"{property_type} cap rate {city} market 2024 2025 average"
-    results = _google_search(query)
+    treasury = fred.get_treasury_rates()
+    mortgage = fred.get_mortgage_rates()
+    t10 = treasury.get("treasury_10yr")
 
-    cap_rates = []
-    for r in results:
-        numbers = _extract_numbers(r["snippet"])
-        for n in numbers:
-            if 3.0 <= n <= 12.0:
-                cap_rates.append(n)
+    spread = CAP_RATE_SPREADS.get(property_type, 2.25)
 
-    avg_cap = sum(cap_rates) / len(cap_rates) if cap_rates else None
+    if t10 is not None:
+        derived_cap = round(t10 + spread, 2)
+        market_caps = [
+            round(derived_cap - 0.50, 2),
+            round(derived_cap - 0.25, 2),
+            derived_cap,
+            round(derived_cap + 0.25, 2),
+            round(derived_cap + 0.50, 2),
+        ]
+        source = "FRED_derived"
+    else:
+        derived_cap = FALLBACK_CAP_RATES.get(property_type, 6.0)
+        market_caps = [derived_cap]
+        source = "defaults"
 
     data = {
-        "market_cap_rates": cap_rates[:5],
-        "average_cap_rate": round(avg_cap, 2) if avg_cap else _default_cap_rate(property_type),
-        "search_results": [{"source": r["title"], "snippet": r["snippet"]} for r in results],
-        "source": "web_search" if cap_rates else "defaults",
+        "market_cap_rates": market_caps,
+        "average_cap_rate": derived_cap,
+        "treasury_10yr": t10,
+        "treasury_2yr": treasury.get("treasury_2yr"),
+        "spread_used": spread,
+        "mortgage_30yr": mortgage.get("current_rate"),
+        "search_results": [{
+            "source": "FRED 10-Year Treasury + Property Spread",
+            "snippet": f"10Y Treasury: {t10}% + {spread}% spread = {derived_cap}% cap rate"
+                       if t10 else "Using fallback cap rate defaults",
+        }],
+        "source": source,
     }
     _cache[cache_key] = data
     return data
 
 
 def search_demographics(city: str, state: str) -> dict:
-    """Search for demographic data."""
+    """Gather demographic data from Census (city-level) and BLS."""
     cache_key = f"demo_{city}_{state}"
     if cache_key in _cache:
         return _cache[cache_key]
 
-    query = f"{city} {state} population employment rate median household income growth 2024"
-    results = _google_search(query)
+    # Fix #3: Try city-level first, fall back to state
+    census_data = census.get_all_demographics(city, state)
+    labor_data = bls.get_all_labor_data()
+    fred_unemployment = fred.get_unemployment_rate()
+
+    pop = census_data.get("population")
+    income = census_data.get("median_income")
+    median_rent = census_data.get("median_rent")
+    vacancy = census_data.get("vacancy_rate")
+    renter_pct = census_data.get("renter_pct")
+    data_level = census_data.get("level", "unknown")
+    unemp = (fred_unemployment.get("current_rate")
+             or labor_data.get("unemployment", {}).get("rate"))
+
+    has_data = pop is not None or income is not None
+    summary = _build_api_summary(city, state, data_level, pop, income,
+                                 median_rent, unemp, vacancy, renter_pct)
+
+    search_results = []
+    level_label = f"({data_level}-level)" if data_level != "unknown" else ""
+    if pop:
+        search_results.append({
+            "source": f"Census Bureau ACS {level_label}",
+            "snippet": f"{city} population: {pop:,}; Median income: ${income:,}" if income else f"{city} population: {pop:,}",
+        })
+    if unemp:
+        search_results.append({
+            "source": "FRED / BLS",
+            "snippet": f"National unemployment rate: {unemp}%",
+        })
+    if median_rent:
+        search_results.append({
+            "source": f"Census Bureau ACS {level_label}",
+            "snippet": f"{city} median gross rent: ${median_rent:,}",
+        })
 
     data = {
-        "search_results": [{"source": r["title"], "snippet": r["snippet"]} for r in results],
+        "search_results": search_results,
         "city": city,
         "state": state,
-        "source": "web_search" if results else "defaults",
-        "summary": _build_demo_summary(results, city, state),
+        "source": f"FRED_Census_BLS ({data_level})" if has_data else "defaults",
+        "summary": summary,
+        "structured": {
+            "population": pop,
+            "median_income": income,
+            "median_rent": median_rent,
+            "unemployment_rate": unemp,
+            "vacancy_rate": vacancy,
+            "renter_pct": renter_pct,
+            "employment_thousands": labor_data.get("employment", {}).get("total_thousands"),
+            "data_level": data_level,
+        },
     }
     _cache[cache_key] = data
     return data
 
 
 def search_rent_trends(property_type: str, city: str) -> dict:
-    """Search for rent growth trends."""
+    """Get rent growth trends from FRED CPI Shelter + Census median rent."""
     cache_key = f"rent_{property_type}_{city}"
     if cache_key in _cache:
         return _cache[cache_key]
 
-    query = f"{property_type} rent growth trends {city} 2024 2025 year over year"
-    results = _google_search(query)
+    cpi_shelter = fred.get_cpi_shelter(limit=36)
+    annual_rates = cpi_shelter.get("annual_growth_rates", [])
 
-    growth_rates = []
-    for r in results:
-        numbers = _extract_numbers(r["snippet"])
-        for n in numbers:
-            if -5.0 <= n <= 15.0:
-                growth_rates.append(n)
+    growth_rates = [r["growth_rate"] for r in annual_rates[-5:]] if annual_rates else []
+    avg_growth = round(sum(growth_rates) / len(growth_rates), 2) if growth_rates else 3.0
+
+    search_results = []
+    if growth_rates:
+        search_results.append({
+            "source": "FRED CPI Shelter",
+            "snippet": f"Recent shelter inflation rates: {', '.join(f'{r:.1f}%' for r in growth_rates[-3:])}",
+        })
 
     data = {
-        "rent_growth_rates": growth_rates[:5],
-        "average_growth": round(sum(growth_rates) / len(growth_rates), 2) if growth_rates else 3.0,
-        "search_results": [{"source": r["title"], "snippet": r["snippet"]} for r in results],
-        "source": "web_search" if growth_rates else "defaults",
+        "rent_growth_rates": growth_rates,
+        "average_growth": avg_growth,
+        "search_results": search_results,
+        "source": "FRED_CPI_Shelter" if growth_rates else "defaults",
+        "cpi_shelter_data": annual_rates[-12:] if annual_rates else [],
     }
     _cache[cache_key] = data
     return data
@@ -168,38 +235,50 @@ def run_full_research(property_type: str, city: str, state: str) -> dict:
     }
 
 
-def _default_comps(property_type: str, city: str) -> list[dict]:
-    """Fallback comp data when web search fails."""
-    base_comps = [
-        {"name": f"{city} {property_type} Comp 1", "price_per_unit": 150000, "cap_rate": 5.5, "year": 2024, "units": 120},
-        {"name": f"{city} {property_type} Comp 2", "price_per_unit": 165000, "cap_rate": 5.25, "year": 2024, "units": 95},
-        {"name": f"{city} {property_type} Comp 3", "price_per_unit": 140000, "cap_rate": 5.75, "year": 2023, "units": 150},
-        {"name": f"{city} {property_type} Comp 4", "price_per_unit": 175000, "cap_rate": 5.0, "year": 2024, "units": 80},
-        {"name": f"{city} {property_type} Comp 5", "price_per_unit": 155000, "cap_rate": 5.5, "year": 2023, "units": 110},
-    ]
-    return base_comps
+def _estimate_price_per_unit(property_type: str, median_rent: int | None,
+                             median_income: int | None) -> int:
+    if median_rent and median_rent > 0:
+        annual_rent = median_rent * 12
+        grm = {"Multifamily": 13, "Office": 11, "Retail": 10, "Industrial": 12}
+        multiplier = grm.get(property_type, 12)
+        return int(annual_rent * multiplier)
+    defaults = {"Multifamily": 155000, "Office": 180000, "Retail": 170000, "Industrial": 140000}
+    return defaults.get(property_type, 155000)
 
 
-def _default_cap_rate(property_type: str) -> float:
-    """Fallback cap rates by property type."""
-    defaults = {
-        "Multifamily": 5.25,
-        "Office": 6.50,
-        "Retail": 6.25,
-        "Industrial": 5.75,
-    }
-    return defaults.get(property_type, 6.0)
+def _build_api_summary(city: str, state: str, data_level: str,
+                       population: int | None, median_income: int | None,
+                       median_rent: int | None, unemployment: float | None,
+                       vacancy: float | None, renter_pct: float | None) -> str:
+    level_note = f" ({data_level}-level data)" if data_level != "unknown" else ""
+    parts = [f"{city}, {state}{level_note}"]
 
+    if population:
+        if population >= 1_000_000:
+            parts.append(f"has a population of {population/1e6:.1f} million")
+        else:
+            parts.append(f"has a population of {population:,}")
 
-def _build_demo_summary(results: list[dict], city: str, state: str) -> str:
-    """Build a narrative summary from search results."""
-    if not results:
-        return (
-            f"{city}, {state} is a growing market with positive economic indicators. "
-            f"The metropolitan area has seen steady population and employment growth, "
-            f"supporting demand for commercial real estate."
-        )
-    snippets = " ".join(r["snippet"] for r in results[:3])
-    if len(snippets) > 500:
-        snippets = snippets[:500] + "..."
-    return f"Based on market research: {snippets}"
+    if median_income:
+        parts.append(f"median household income of ${median_income:,}")
+    if median_rent:
+        parts.append(f"median gross rent of ${median_rent:,}/month")
+    if unemployment:
+        parts.append(f"a national unemployment rate of {unemployment}%")
+    if vacancy:
+        parts.append(f"a housing vacancy rate of {vacancy}%")
+    if renter_pct:
+        parts.append(f"({renter_pct}% renter-occupied)")
+
+    summary = " with ".join(parts[:2])
+    if len(parts) > 2:
+        summary += ", " + ", ".join(parts[2:])
+    summary += ". "
+
+    if median_income and median_income > 55000:
+        summary += "The area demonstrates above-average income levels, supporting demand for quality rental housing. "
+    if unemployment and unemployment < 5.0:
+        summary += "Low unemployment indicates a healthy local economy. "
+
+    summary += "Data sourced from FRED, Census Bureau ACS, and BLS."
+    return summary
