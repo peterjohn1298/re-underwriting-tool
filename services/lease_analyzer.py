@@ -1,4 +1,4 @@
-"""Lease document NLP analyzer using Claude API and PyPDF2."""
+"""Lease document NLP analyzer using Google Gemini / Claude API and PyPDF2."""
 
 import logging
 import json
@@ -8,11 +8,12 @@ logger = logging.getLogger(__name__)
 
 
 class LeaseAnalyzer:
-    """Analyze lease documents using Claude AI for NLP extraction."""
+    """Analyze lease documents using AI (Gemini or Claude) for NLP extraction."""
 
     def __init__(self, api_key: str = None):
-        from config import ANTHROPIC_API_KEY
-        self.api_key = api_key or ANTHROPIC_API_KEY
+        from config import ANTHROPIC_API_KEY, GOOGLE_API_KEY
+        self.anthropic_key = api_key or ANTHROPIC_API_KEY
+        self.google_key = GOOGLE_API_KEY
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
         """Extract text from a PDF file using PyPDF2."""
@@ -40,14 +41,20 @@ class LeaseAnalyzer:
         if not text or len(text) < 50:
             return {"error": "Could not extract meaningful text from PDF"}
 
-        if not self.api_key or self.api_key == "your_anthropic_api_key_here":
-            return self._fallback_analysis(text)
+        # Try Gemini first, then Claude, then regex fallback
+        if self.google_key:
+            try:
+                return self._gemini_analysis(text)
+            except Exception as e:
+                logger.error(f"Gemini analysis failed: {e}")
 
-        try:
-            return self._claude_analysis(text)
-        except Exception as e:
-            logger.error(f"Claude analysis failed: {e}")
-            return self._fallback_analysis(text)
+        if self.anthropic_key and self.anthropic_key != "your_anthropic_api_key_here":
+            try:
+                return self._claude_analysis(text)
+            except Exception as e:
+                logger.error(f"Claude analysis failed: {e}")
+
+        return self._fallback_analysis(text)
 
     def analyze_multiple_leases(self, pdf_paths: list[str]) -> dict:
         """Analyze multiple lease PDFs and return aggregated results.
@@ -108,18 +115,12 @@ class LeaseAnalyzer:
             "analysis_method": "multi_lease_aggregated",
         }
 
-    def _claude_analysis(self, text: str) -> dict:
-        """Use Claude API to extract structured lease data."""
-        import anthropic
-
-        client = anthropic.Anthropic(api_key=self.api_key)
-
-        # Truncate text to fit context
+    def _get_lease_prompt(self, text: str) -> str:
+        """Shared prompt for both Gemini and Claude."""
         max_chars = 80000
         if len(text) > max_chars:
             text = text[:max_chars] + "\n...[TRUNCATED]..."
-
-        prompt = f"""Analyze this commercial real estate lease document and extract key terms.
+        return f"""Analyze this commercial real estate lease document and extract key terms.
 Return ONLY valid JSON with these fields (use null for any field you cannot determine):
 
 {{
@@ -148,6 +149,46 @@ Return ONLY valid JSON with these fields (use null for any field you cannot dete
 
 LEASE DOCUMENT TEXT:
 {text}"""
+
+    def _gemini_analysis(self, text: str) -> dict:
+        """Use Google Gemini API to extract structured lease data."""
+        import google.generativeai as genai
+
+        genai.configure(api_key=self.google_key)
+        model = genai.GenerativeModel("gemini-2.0-flash")
+
+        prompt = self._get_lease_prompt(text)
+        response = model.generate_content(prompt)
+        response_text = response.text
+
+        try:
+            if "```json" in response_text:
+                json_str = response_text.split("```json")[1].split("```")[0]
+            elif "```" in response_text:
+                json_str = response_text.split("```")[1].split("```")[0]
+            else:
+                json_str = response_text
+
+            result = json.loads(json_str.strip())
+            result["analysis_method"] = "gemini_nlp"
+            result["text_length"] = len(text)
+            return result
+
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse Gemini JSON response")
+            return {
+                "summary": response_text[:500],
+                "analysis_method": "gemini_nlp_raw",
+                "raw_response": response_text,
+                "text_length": len(text),
+            }
+
+    def _claude_analysis(self, text: str) -> dict:
+        """Use Claude API to extract structured lease data (fallback if Gemini unavailable)."""
+        import anthropic
+
+        client = anthropic.Anthropic(api_key=self.anthropic_key)
+        prompt = self._get_lease_prompt(text)
 
         message = client.messages.create(
             model="claude-sonnet-4-20250514",
@@ -202,7 +243,7 @@ LEASE DOCUMENT TEXT:
             "key_clauses": [],
             "risk_flags": ["Automated analysis only — manual review recommended"],
             "summary": "Lease document uploaded but AI analysis unavailable. "
-                       "Configure ANTHROPIC_API_KEY for full NLP analysis.",
+                       "Configure GOOGLE_API_KEY or ANTHROPIC_API_KEY for full NLP analysis.",
         }
 
         text_lower = text.lower()

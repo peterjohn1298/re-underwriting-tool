@@ -15,3 +15,4 @@ SECRET_KEY = os.environ.get("SECRET_KEY", "dev-re-underwriting-key")
 
 FRED_API_KEY = os.environ.get("FRED_API_KEY", "")
 ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
