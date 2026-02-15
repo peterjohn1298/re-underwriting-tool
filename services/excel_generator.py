@@ -68,7 +68,9 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str,
                    ml_valuation: dict = None,
                    lease_analysis: dict = None,
                    rent_prediction: dict = None,
-                   sensitivity: dict = None) -> str:
+                   sensitivity: dict = None,
+                   backtest: dict = None,
+                   monte_carlo: dict = None) -> str:
     wb = Workbook()
     inp = pro_forma["inputs"]
     deal = inp["deal"]
@@ -847,6 +849,150 @@ def generate_excel(pro_forma: dict, market_data: dict, job_id: str,
 
         _widths(ws11, len(hdrs), 14)
         ws11.column_dimensions["A"].width = 22
+
+    # ========== TAB: Backtest (conditional) ==========
+    if backtest and not backtest.get("error"):
+        ws_bt = wb.create_sheet("Backtest")
+        ws_bt.sheet_properties.tabColor = GOLD
+        _title(ws_bt, 1, 1, "Model Backtest Validation")
+
+        r = 3
+        bt_meta = [
+            ("Train Periods", backtest["train_periods"]),
+            ("Test Periods", backtest["test_periods"]),
+            ("Split", f"{backtest['split_pct']}% train / {100 - backtest['split_pct']}% test"),
+            ("MAE", f"{backtest['mae']:.3f}%"),
+            ("RMSE", f"{backtest['rmse']:.3f}%"),
+            ("Direction Accuracy", f"{backtest['direction_accuracy']}%" if backtest.get("direction_accuracy") else "N/A"),
+            ("Mean Actual", f"{backtest['mean_actual']:.2f}%"),
+            ("Mean Predicted", f"{backtest['mean_predicted']:.2f}%"),
+            ("Quality", backtest.get("quality", "N/A")),
+        ]
+        if backtest.get("has_blended"):
+            bt_meta.append(("Blended MAE (ZORI+CPI)", f"{backtest['blended_mae']:.3f}%"))
+            bt_meta.append(("Blended RMSE (ZORI+CPI)", f"{backtest['blended_rmse']:.3f}%"))
+
+        for label, val in bt_meta:
+            ws_bt.cell(row=r, column=1, value=label).font = SUBHEADER_FONT
+            ws_bt.cell(row=r, column=2, value=val).font = NORMAL_FONT
+            r += 1
+
+        # Actual vs Predicted table
+        r += 1
+        actuals = backtest.get("actual_values", [])
+        predicted = backtest.get("predicted_values", [])
+        test_dates = backtest.get("test_dates", [])
+
+        if actuals and predicted:
+            hdrs_bt = ["Period", "Actual (%)", "Predicted (%)", "Error (%)"]
+            if backtest.get("blended_values"):
+                hdrs_bt.append("Blended (%)")
+            for c_idx, h in enumerate(hdrs_bt, 1):
+                ws_bt.cell(row=r, column=c_idx, value=h)
+            _hdr_row(ws_bt, r, len(hdrs_bt))
+            r += 1
+
+            for i in range(len(actuals)):
+                ws_bt.cell(row=r, column=1, value=test_dates[i] if i < len(test_dates) else f"T+{i+1}").font = NORMAL_FONT
+                ws_bt.cell(row=r, column=2, value=actuals[i]).number_format = '0.00'
+                ws_bt.cell(row=r, column=3, value=predicted[i]).number_format = '0.00'
+                ws_bt.cell(row=r, column=4, value=round(actuals[i] - predicted[i], 3)).number_format = '0.000'
+                if backtest.get("blended_values") and i < len(backtest["blended_values"]):
+                    ws_bt.cell(row=r, column=5, value=backtest["blended_values"][i]).number_format = '0.00'
+                _data_row(ws_bt, r, len(hdrs_bt), alt=(i % 2 == 0))
+                r += 1
+
+            # Chart: Actual vs Predicted
+            chart_start = r + 1
+            ws_bt.cell(row=chart_start, column=1, value="Period")
+            ws_bt.cell(row=chart_start, column=2, value="Actual")
+            ws_bt.cell(row=chart_start, column=3, value="Predicted")
+            for i in range(len(actuals)):
+                ws_bt.cell(row=chart_start + 1 + i, column=1, value=test_dates[i] if i < len(test_dates) else f"T+{i+1}")
+                ws_bt.cell(row=chart_start + 1 + i, column=2, value=actuals[i])
+                ws_bt.cell(row=chart_start + 1 + i, column=3, value=predicted[i])
+
+            chart = LineChart()
+            chart.title = "Backtest: Actual vs Predicted Growth Rates"
+            chart.style = 10
+            chart.width = 20
+            chart.height = 12
+            chart.add_data(Reference(ws_bt, min_col=2, min_row=chart_start, max_row=chart_start + len(actuals)), titles_from_data=True)
+            chart.add_data(Reference(ws_bt, min_col=3, min_row=chart_start, max_row=chart_start + len(actuals)), titles_from_data=True)
+            chart.set_categories(Reference(ws_bt, min_col=1, min_row=chart_start + 1, max_row=chart_start + len(actuals)))
+            ws_bt.add_chart(chart, f"E3")
+
+        _widths(ws_bt, 5, 16)
+
+    # ========== TAB: Monte Carlo (conditional) ==========
+    if monte_carlo and not monte_carlo.get("error"):
+        ws_mc = wb.create_sheet("Monte Carlo")
+        ws_mc.sheet_properties.tabColor = GOLD
+        _title(ws_mc, 1, 1, "Monte Carlo Simulation")
+
+        r = 3
+        mc_meta = [
+            ("Iterations", monte_carlo.get("n_iterations", 1000)),
+            ("Summary", monte_carlo.get("summary", "")),
+        ]
+        for label, val in mc_meta:
+            ws_mc.cell(row=r, column=1, value=label).font = SUBHEADER_FONT
+            ws_mc.cell(row=r, column=2, value=val).font = NORMAL_FONT
+            r += 1
+
+        # Percentiles
+        r += 1
+        ws_mc.cell(row=r, column=1, value="IRR Percentiles").font = SUBHEADER_FONT
+        r += 1
+        pctiles = monte_carlo.get("percentiles", {})
+        for c_idx, h in enumerate(["Percentile", "IRR"], 1):
+            ws_mc.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws_mc, r, 2)
+        r += 1
+        for pct_label, pct_val in pctiles.items():
+            ws_mc.cell(row=r, column=1, value=pct_label).font = NORMAL_FONT
+            ws_mc.cell(row=r, column=2, value=pct_val / 100 if pct_val else 0).number_format = PCT_FMT
+            r += 1
+
+        # Probabilities
+        r += 1
+        ws_mc.cell(row=r, column=1, value="Probability Analysis").font = SUBHEADER_FONT
+        r += 1
+        probs = monte_carlo.get("probabilities", {})
+        for c_idx, h in enumerate(["Threshold", "Probability"], 1):
+            ws_mc.cell(row=r, column=c_idx, value=h)
+        _hdr_row(ws_mc, r, 2)
+        r += 1
+        for threshold, prob in probs.items():
+            ws_mc.cell(row=r, column=1, value=threshold).font = NORMAL_FONT
+            ws_mc.cell(row=r, column=2, value=prob / 100 if prob else 0).number_format = PCT_FMT
+            r += 1
+
+        # Histogram data
+        bins = monte_carlo.get("histogram_bins", [])
+        counts = monte_carlo.get("histogram_counts", [])
+        if bins and counts:
+            r += 1
+            chart_start = r
+            ws_mc.cell(row=r, column=1, value="IRR Range")
+            ws_mc.cell(row=r, column=2, value="Frequency")
+            for i in range(len(counts)):
+                label = f"{bins[i]:.1f}%-{bins[i+1]:.1f}%" if i + 1 < len(bins) else f">{bins[i]:.1f}%"
+                ws_mc.cell(row=r + 1 + i, column=1, value=label)
+                ws_mc.cell(row=r + 1 + i, column=2, value=counts[i])
+
+            chart = BarChart()
+            chart.title = "IRR Distribution (Monte Carlo)"
+            chart.style = 10
+            chart.width = 20
+            chart.height = 12
+            chart.add_data(Reference(ws_mc, min_col=2, min_row=chart_start, max_row=chart_start + len(counts)), titles_from_data=True)
+            chart.set_categories(Reference(ws_mc, min_col=1, min_row=chart_start + 1, max_row=chart_start + len(counts)))
+            if chart.series:
+                chart.series[0].graphicalProperties.solidFill = GOLD
+            ws_mc.add_chart(chart, "D3")
+
+        _widths(ws_mc, 2, 22)
 
     # Save
     filename = f"underwriting_{job_id}.xlsx"

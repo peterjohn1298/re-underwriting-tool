@@ -5,6 +5,7 @@ import logging
 from services.api_clients.fred_client import FREDClient
 from services.api_clients.census_client import CensusClient
 from services.api_clients.bls_client import BLSClient
+from services.api_clients.zillow_client import ZillowClient
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ FALLBACK_CAP_RATES = {
 fred = FREDClient()
 census = CensusClient()
 bls = BLSClient()
+zillow = ZillowClient()
 
 
 def search_comps(property_type: str, city: str, state: str) -> dict:
@@ -195,9 +197,9 @@ def search_demographics(city: str, state: str) -> dict:
     return data
 
 
-def search_rent_trends(property_type: str, city: str) -> dict:
-    """Get rent growth trends from FRED CPI Shelter + Census median rent."""
-    cache_key = f"rent_{property_type}_{city}"
+def search_rent_trends(property_type: str, city: str, state: str = "") -> dict:
+    """Get rent growth trends from FRED CPI Shelter + Zillow ZORI + Census median rent."""
+    cache_key = f"rent_{property_type}_{city}_{state}"
     if cache_key in _cache:
         return _cache[cache_key]
 
@@ -214,15 +216,57 @@ def search_rent_trends(property_type: str, city: str) -> dict:
             "snippet": f"Recent shelter inflation rates: {', '.join(f'{r:.1f}%' for r in growth_rates[-3:])}",
         })
 
+    # Zillow ZORI city-level data
+    zori_data = zillow.get_annual_growth_rates(city, state)
+    zori_growth_rates = []
+    if zori_data.get("available"):
+        zori_growth_rates = zori_data.get("annual_rates", [])
+        zori_avg = zori_data.get("avg_annual_growth")
+        search_results.append({
+            "source": f"Zillow ZORI ({zori_data.get('city', city)})",
+            "snippet": (
+                f"ZORI avg annual growth: {zori_avg}%, "
+                f"latest rent: ${zori_data.get('latest_rent', 0):,.0f}/mo"
+            ),
+        })
+
+    source = "FRED_CPI_Shelter"
+    if zori_growth_rates:
+        source += "+Zillow_ZORI"
+    if not growth_rates and not zori_growth_rates:
+        source = "defaults"
+
     data = {
         "rent_growth_rates": growth_rates,
         "average_growth": avg_growth,
         "search_results": search_results,
-        "source": "FRED_CPI_Shelter" if growth_rates else "defaults",
+        "source": source,
         "cpi_shelter_data": annual_rates[-12:] if annual_rates else [],
+        "zori": zori_data if zori_data.get("available") else None,
+        "zori_growth_rates": zori_growth_rates,
     }
     _cache[cache_key] = data
     return data
+
+
+def _fetch_macro_signals() -> dict:
+    """Fetch macro signals for ML valuation: CPI inflation, housing starts, rental vacancy."""
+    cpi = fred.get_cpi_data()
+    housing = fred.get_housing_starts()
+    vacancy = fred.get_rental_vacancy_rate()
+    treasury = fred.get_treasury_rates()
+
+    return {
+        "cpi_yoy_inflation": cpi.get("yoy_inflation"),
+        "housing_starts": housing.get("current"),
+        "rental_vacancy_rate": vacancy.get("current_rate"),
+        "treasury_10yr": treasury.get("treasury_10yr"),
+        "treasury_2yr": treasury.get("treasury_2yr"),
+        "treasury_spread": (
+            round(treasury["treasury_10yr"] - treasury["treasury_2yr"], 2)
+            if treasury.get("treasury_10yr") and treasury.get("treasury_2yr") else None
+        ),
+    }
 
 
 def run_full_research(property_type: str, city: str, state: str) -> dict:
@@ -231,7 +275,8 @@ def run_full_research(property_type: str, city: str, state: str) -> dict:
         "comps": search_comps(property_type, city, state),
         "cap_rates": search_cap_rates(property_type, city),
         "demographics": search_demographics(city, state),
-        "rent_trends": search_rent_trends(property_type, city),
+        "rent_trends": search_rent_trends(property_type, city, state),
+        "macro": _fetch_macro_signals(),
     }
 
 

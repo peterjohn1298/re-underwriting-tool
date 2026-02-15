@@ -1,0 +1,172 @@
+{% extends "base.html" %}
+{% block title %}RE Underwriting — Compare Deals{% endblock %}
+{% block content %}
+<div class="row">
+    <div class="col-12">
+        <div class="d-flex justify-content-between align-items-center mb-3">
+            <h2 class="text-gold mb-0"><i class="bi bi-bar-chart-steps"></i> Deal Comparison</h2>
+            <a href="/" class="btn btn-outline-light btn-sm"><i class="bi bi-plus-lg"></i> New Analysis</a>
+        </div>
+
+        {% if deals|length == 0 %}
+        <div class="alert alert-secondary text-center py-5">
+            <i class="bi bi-bookmark fs-1 d-block mb-3"></i>
+            <h5>No saved deals yet</h5>
+            <p class="text-muted">Run an analysis and click "Save for Comparison" on the results page to add deals here.</p>
+            <a href="/" class="btn btn-gold btn-sm">Start New Analysis</a>
+        </div>
+        {% elif deals|length == 1 %}
+        <div class="alert alert-info">
+            <i class="bi bi-info-circle"></i> Save at least 2 deals to see side-by-side comparison. You have 1 deal saved.
+        </div>
+        {% endif %}
+
+        {% if deals|length >= 1 %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy"><h6 class="mb-0">Side-by-Side Comparison</h6></div>
+            <div class="card-body table-responsive">
+                <table class="table table-dark table-sm table-striped">
+                    <thead>
+                        <tr>
+                            <th>Metric</th>
+                            {% for d in deals %}
+                            <th class="text-center">
+                                <a href="/results/{{ d.job_id }}" class="text-gold text-decoration-none">
+                                    {{ d.property_name }}<br>
+                                    <small class="text-muted">{{ d.property_type }}</small>
+                                </a>
+                            </th>
+                            {% endfor %}
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% set metrics = [
+                            ("Purchase Price", "purchase_price", "currency"),
+                            ("Units", "total_units", "number"),
+                            ("Price / Unit", "price_per_unit", "currency"),
+                            ("Current NOI", "current_noi", "currency"),
+                            ("In-Place Rent", "in_place_rent", "rent"),
+                            ("Market Rent", "market_rent", "rent"),
+                            ("Occupancy", "occupancy", "pct_raw"),
+                            ("Levered IRR", "levered_irr", "pct_raw"),
+                            ("After-Tax IRR", "after_tax_irr", "pct_raw"),
+                            ("Equity Multiple", "equity_multiple", "multiple"),
+                            ("Cash-on-Cash (Yr 1)", "cash_on_cash_yr1", "pct_raw"),
+                            ("DSCR (Yr 1)", "dscr_yr1", "multiple"),
+                            ("Going-In Cap", "going_in_cap_rate", "pct_raw"),
+                            ("Exit Cap", "exit_cap_rate", "pct_raw"),
+                            ("Yield on Cost", "yield_on_cost", "pct_raw"),
+                            ("ML Assessment", "ml_assessment", "text"),
+                            ("MC Prob IRR>12%", "mc_prob_12", "pct_direct"),
+                        ] %}
+
+                        {% for label, key, fmt in metrics %}
+                        <tr>
+                            <td>{{ label }}</td>
+                            {% for d in deals %}
+                            {% set val = d[key] if d[key] is defined else None %}
+                            <td class="text-end" id="cell_{{ key }}_{{ loop.index0 }}">
+                                {% if val is none %}
+                                    <span class="text-muted">N/A</span>
+                                {% elif fmt == "currency" %}
+                                    {% if val >= 1000000 %}${{ "%.1f"|format(val / 1000000) }}M{% else %}${{ "{:,.0f}".format(val) }}{% endif %}
+                                {% elif fmt == "rent" %}
+                                    ${{ "{:,.0f}".format(val) }}/mo
+                                {% elif fmt == "pct_raw" %}
+                                    {{ "%.1f"|format(val * 100) }}%
+                                {% elif fmt == "pct_direct" %}
+                                    {{ "%.1f"|format(val) }}%
+                                {% elif fmt == "multiple" %}
+                                    {{ "%.2f"|format(val) }}x
+                                {% elif fmt == "number" %}
+                                    {{ val }}
+                                {% else %}
+                                    {{ val }}
+                                {% endif %}
+                            </td>
+                            {% endfor %}
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <!-- NOI Comparison Chart -->
+        {% if deals|length >= 2 %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy"><h6 class="mb-0">NOI Growth Comparison</h6></div>
+            <div class="card-body">
+                <canvas id="compareNOIChart" height="200"></canvas>
+            </div>
+        </div>
+        {% endif %}
+
+        {% endif %}
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+    {% if deals|length >= 2 %}
+    const deals = {{ deals | tojson }};
+    const colors = ['#C8A951', '#4dabf7', '#28a745', '#dc3545', '#ffc107'];
+    const datasets = [];
+    let maxLen = 0;
+
+    deals.forEach((d, i) => {
+        const nois = d.annual_nois || [];
+        if (nois.length > maxLen) maxLen = nois.length;
+        datasets.push({
+            label: d.property_name,
+            data: nois,
+            borderColor: colors[i % colors.length],
+            backgroundColor: 'transparent',
+            tension: 0.3,
+            pointRadius: 3
+        });
+    });
+
+    const labels = Array.from({length: maxLen}, (_, i) => 'Year ' + (i + 1));
+
+    new Chart(document.getElementById('compareNOIChart'), {
+        type: 'line',
+        data: { labels: labels, datasets: datasets },
+        options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#aaa' } } },
+            scales: {
+                y: { ticks: { callback: v => '$' + (v/1e6).toFixed(2) + 'M', color: '#aaa' }, grid: { color: '#2a3a4f' } },
+                x: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' } }
+            }
+        }
+    });
+
+    // Color-code best values
+    const higherIsBetter = ['levered_irr', 'after_tax_irr', 'equity_multiple', 'cash_on_cash_yr1', 'dscr_yr1', 'yield_on_cost', 'mc_prob_12'];
+    const lowerIsBetter = ['purchase_price', 'price_per_unit', 'exit_cap_rate'];
+
+    function colorBest(key, higher) {
+        let bestIdx = -1;
+        let bestVal = higher ? -Infinity : Infinity;
+        deals.forEach((d, i) => {
+            const val = d[key];
+            if (val !== null && val !== undefined) {
+                if (higher && val > bestVal) { bestVal = val; bestIdx = i; }
+                if (!higher && val < bestVal) { bestVal = val; bestIdx = i; }
+            }
+        });
+        if (bestIdx >= 0 && deals.length > 1) {
+            const cell = document.getElementById('cell_' + key + '_' + bestIdx);
+            if (cell) cell.style.color = '#28a745';
+        }
+    }
+
+    higherIsBetter.forEach(k => colorBest(k, true));
+    lowerIsBetter.forEach(k => colorBest(k, false));
+    {% endif %}
+});
+</script>
+{% endblock %}

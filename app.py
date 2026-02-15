@@ -12,6 +12,7 @@ from models.financial_model import build_pro_forma
 from services.market_research import run_full_research
 from services.excel_generator import generate_excel
 from services.word_generator import generate_word
+from services.pdf_generator import generate_pdf
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,8 +20,9 @@ logger = logging.getLogger(__name__)
 app = Flask(__name__)
 app.secret_key = SECRET_KEY
 
-# In-memory job store
+# In-memory stores
 jobs: dict[str, dict] = {}
+saved_deals: dict[str, dict] = {}  # job_id -> saved deal summary for comparison
 
 
 def _f(val, default=0.0):
@@ -108,8 +110,11 @@ def _run_analysis(job_id: str, deal: DealInputs):
                 from services.api_clients.fred_client import FREDClient
                 fred = FREDClient()
                 cpi_shelter = fred.get_cpi_shelter(limit=60)
+                # Get ZORI growth rates for the city if available
+                zori_rates = market_data.get("rent_trends", {}).get("zori_growth_rates", [])
                 predictor = RentPredictor()
-                predictor.train(cpi_shelter.get("annual_growth_rates", []))
+                predictor.train(cpi_shelter.get("annual_growth_rates", []),
+                                zori_growth_rates=zori_rates)
                 rent_prediction = predictor.predict(
                     deal.hold_period_years,
                     deal.in_place_rent,
@@ -127,6 +132,25 @@ def _run_analysis(job_id: str, deal: DealInputs):
             except Exception as e:
                 logger.error(f"[{job_id}] Rent prediction failed: {e}")
                 rent_prediction = {"error": str(e)}
+
+        # --- Backtest (after rent prediction, before pro forma) ---
+        backtest_result = None
+        if rent_prediction and not rent_prediction.get("error"):
+            jobs[job_id]["status"] = "backtesting"
+            logger.info(f"[{job_id}] Running rent prediction backtest...")
+            try:
+                from models.backtest import RentBacktester
+                backtester = RentBacktester()
+                zori_rates = market_data.get("rent_trends", {}).get("zori_growth_rates", [])
+                backtest_result = backtester.run_backtest(
+                    cpi_shelter.get("annual_growth_rates", []),
+                    zori_growth_rates=zori_rates,
+                )
+                if backtest_result.get("error"):
+                    logger.warning(f"[{job_id}] Backtest warning: {backtest_result['error']}")
+            except Exception as e:
+                logger.error(f"[{job_id}] Backtest failed: {e}")
+                backtest_result = {"error": str(e)}
 
         # --- Build Pro Forma (now uses variable growth if rent prediction ran) ---
         jobs[job_id]["status"] = "modeling"
@@ -180,8 +204,22 @@ def _run_analysis(job_id: str, deal: DealInputs):
         logger.info(f"[{job_id}] Running sensitivity analysis...")
         sensitivity = _build_sensitivity(deal, pro_forma)
 
+        # --- Monte Carlo Simulation ---
+        monte_carlo = None
+        jobs[job_id]["status"] = "monte_carlo"
+        logger.info(f"[{job_id}] Running Monte Carlo simulation...")
+        try:
+            from models.monte_carlo import MonteCarloSimulator
+            mc_sim = MonteCarloSimulator(n_iterations=1000)
+            monte_carlo = mc_sim.run(deal, build_pro_forma)
+            if monte_carlo.get("error"):
+                logger.warning(f"[{job_id}] Monte Carlo warning: {monte_carlo['error']}")
+        except Exception as e:
+            logger.error(f"[{job_id}] Monte Carlo failed: {e}")
+            monte_carlo = {"error": str(e)}
+
         # --- Integrated Recommendation (Fix #1) ---
-        recommendation = _build_recommendation(pro_forma, ml_valuation, lease_analysis, rent_prediction)
+        recommendation = _build_recommendation(pro_forma, ml_valuation, lease_analysis, rent_prediction, monte_carlo)
 
         jobs[job_id]["status"] = "generating_excel"
         logger.info(f"[{job_id}] Generating Excel...")
@@ -190,7 +228,9 @@ def _run_analysis(job_id: str, deal: DealInputs):
                                     ml_valuation=ml_valuation,
                                     lease_analysis=lease_analysis,
                                     rent_prediction=rent_prediction,
-                                    sensitivity=sensitivity)
+                                    sensitivity=sensitivity,
+                                    backtest=backtest_result,
+                                    monte_carlo=monte_carlo)
 
         jobs[job_id]["status"] = "generating_word"
         logger.info(f"[{job_id}] Generating Word memo...")
@@ -199,7 +239,20 @@ def _run_analysis(job_id: str, deal: DealInputs):
                                   ml_valuation=ml_valuation,
                                   lease_analysis=lease_analysis,
                                   rent_prediction=rent_prediction,
-                                  sensitivity=sensitivity)
+                                  sensitivity=sensitivity,
+                                  backtest=backtest_result,
+                                  monte_carlo=monte_carlo)
+
+        jobs[job_id]["status"] = "generating_pdf"
+        logger.info(f"[{job_id}] Generating PDF report...")
+
+        pdf_path = generate_pdf(pro_forma, market_data, job_id,
+                                ml_valuation=ml_valuation,
+                                lease_analysis=lease_analysis,
+                                rent_prediction=rent_prediction,
+                                sensitivity=sensitivity,
+                                backtest=backtest_result,
+                                monte_carlo=monte_carlo)
 
         jobs[job_id].update({
             "status": "complete",
@@ -208,10 +261,14 @@ def _run_analysis(job_id: str, deal: DealInputs):
             "ml_valuation": ml_valuation,
             "lease_analysis": lease_analysis,
             "rent_prediction": rent_prediction,
+            "backtest": backtest_result,
+            "monte_carlo": monte_carlo,
             "sensitivity": sensitivity,
             "recommendation": recommendation,
             "excel_path": excel_path,
             "word_path": word_path,
+            "pdf_path": pdf_path,
+            "deal": deal,
         })
         logger.info(f"[{job_id}] Analysis complete!")
 
@@ -291,7 +348,8 @@ def _build_sensitivity(deal, pro_forma: dict) -> dict:
 
 
 def _build_recommendation(pro_forma: dict, ml_valuation=None,
-                          lease_analysis=None, rent_prediction=None) -> dict:
+                          lease_analysis=None, rent_prediction=None,
+                          monte_carlo=None) -> dict:
     """Build integrated recommendation using all available signals (Fix #1)."""
     m = pro_forma["metrics"]
     irr = m.get("levered_irr")
@@ -356,6 +414,19 @@ def _build_recommendation(pro_forma: dict, ml_valuation=None,
         elif avg_growth < 1.0:
             signals.append(("Rent Forecast", "CAUTION", f"{avg_growth:.1f}% predicted growth — weak rent outlook"))
             score -= 1
+
+    # 6. Monte Carlo signal
+    if monte_carlo and not monte_carlo.get("error"):
+        mc_signal = monte_carlo.get("mc_signal", "NEUTRAL")
+        mc_detail = monte_carlo.get("mc_detail", "")
+        if mc_signal == "POSITIVE":
+            signals.append(("Monte Carlo", "POSITIVE", mc_detail))
+            score += 1
+        elif mc_signal == "WARNING":
+            signals.append(("Monte Carlo", "WARNING", mc_detail))
+            score -= 1
+        else:
+            signals.append(("Monte Carlo", "NEUTRAL", mc_detail))
 
     # Final recommendation
     if score >= 2:
@@ -449,6 +520,8 @@ def results(job_id):
                            ml_valuation=job.get("ml_valuation"),
                            lease_analysis=job.get("lease_analysis"),
                            rent_prediction=job.get("rent_prediction"),
+                           backtest=job.get("backtest"),
+                           monte_carlo=job.get("monte_carlo"),
                            sensitivity=job.get("sensitivity"),
                            recommendation=job.get("recommendation"))
 
@@ -463,7 +536,7 @@ def results_json(job_id):
     return jsonify(job["results"])
 
 
-@app.route("/api/download/<job_id>/<file_type>")
+@app.route("/api/download/<job_id>/file/<file_type>")
 def download(job_id, file_type):
     if job_id not in jobs:
         return jsonify({"error": "Not found"}), 404
@@ -479,8 +552,112 @@ def download(job_id, file_type):
         path = job.get("word_path")
         if path and os.path.exists(path):
             return send_file(path, as_attachment=True, download_name=f"investment_memo_{job_id}.docx")
+    elif file_type == "pdf":
+        path = job.get("pdf_path")
+        if path and os.path.exists(path):
+            return send_file(path, as_attachment=True, download_name=f"investment_report_{job_id}.pdf")
 
     return jsonify({"error": "File not found"}), 404
+
+
+@app.route("/api/save_deal/<job_id>", methods=["POST"])
+def save_deal(job_id):
+    """Save a completed deal for comparison."""
+    if job_id not in jobs:
+        return jsonify({"error": "Job not found"}), 404
+    job = jobs[job_id]
+    if job["status"] != "complete":
+        return jsonify({"error": "Analysis not complete"}), 400
+
+    results = job["results"]
+    m = results["metrics"]
+    deal = results["inputs"]["deal"]
+    derived = results["inputs"]["derived"]
+
+    saved_deals[job_id] = {
+        "job_id": job_id,
+        "property_name": derived["property_name"],
+        "address": deal["address"],
+        "property_type": deal["property_type"],
+        "purchase_price": deal["purchase_price"],
+        "total_units": deal["total_units"],
+        "price_per_unit": derived["price_per_unit"],
+        "current_noi": deal["current_noi"],
+        "in_place_rent": deal["in_place_rent"],
+        "market_rent": deal["market_rent"],
+        "occupancy": deal["occupancy"],
+        "levered_irr": m.get("levered_irr"),
+        "after_tax_irr": m.get("after_tax_irr"),
+        "equity_multiple": m.get("equity_multiple"),
+        "cash_on_cash_yr1": m.get("cash_on_cash_yr1"),
+        "dscr_yr1": m.get("dscr_yr1"),
+        "going_in_cap_rate": m.get("going_in_cap_rate"),
+        "exit_cap_rate": m.get("exit_cap_rate"),
+        "yield_on_cost": m.get("yield_on_cost"),
+        "stabilized_yoc": m.get("stabilized_yoc"),
+        "annual_nois": results.get("annual_nois", []),
+        "ml_assessment": job.get("ml_valuation", {}).get("assessment") if job.get("ml_valuation") and not job.get("ml_valuation", {}).get("error") else None,
+        "mc_prob_12": job.get("monte_carlo", {}).get("probabilities", {}).get("IRR > 12%") if job.get("monte_carlo") and not job.get("monte_carlo", {}).get("error") else None,
+    }
+    return jsonify({"saved": True, "deal_count": len(saved_deals)})
+
+
+@app.route("/api/saved_deals")
+def get_saved_deals():
+    """Get all saved deals for comparison."""
+    return jsonify(list(saved_deals.values()))
+
+
+@app.route("/compare")
+def compare():
+    """Show comparison page."""
+    return render_template("compare.html", deals=list(saved_deals.values()))
+
+
+@app.route("/api/whatif/<job_id>", methods=["POST"])
+def whatif(job_id):
+    """Interactive what-if analysis endpoint."""
+    import copy
+
+    if job_id not in jobs:
+        return jsonify({"error": "Job not found"}), 404
+    job = jobs[job_id]
+    if job["status"] != "complete":
+        return jsonify({"error": "Analysis not complete"}), 400
+
+    deal_obj = job.get("deal")
+    if deal_obj is None:
+        return jsonify({"error": "Deal data not available"}), 400
+
+    data = request.get_json()
+    if not data:
+        return jsonify({"error": "No parameters provided"}), 400
+
+    sim_deal = copy.deepcopy(deal_obj)
+    sim_deal.yearly_revenue_growth = []  # Use flat rate for what-if
+
+    if "rent_growth" in data:
+        sim_deal.revenue_growth_rate = data["rent_growth"] / 100
+    if "exit_cap_spread" in data:
+        sim_deal.exit_cap_rate_spread = data["exit_cap_spread"] / 10000
+    if "occupancy" in data:
+        sim_deal.occupancy = data["occupancy"] / 100
+    if "expense_growth" in data:
+        sim_deal.expense_growth_rate = data["expense_growth"] / 100
+
+    try:
+        result = build_pro_forma(sim_deal)
+        m = result["metrics"]
+        return jsonify({
+            "levered_irr": round(m["levered_irr"] * 100, 1) if m.get("levered_irr") else None,
+            "equity_multiple": round(m["equity_multiple"], 2) if m.get("equity_multiple") else None,
+            "dscr_yr1": round(m["dscr_yr1"], 2) if m.get("dscr_yr1") else None,
+            "cash_on_cash_yr1": round(m["cash_on_cash_yr1"] * 100, 1) if m.get("cash_on_cash_yr1") else None,
+            "yield_on_cost": round(m["yield_on_cost"] * 100, 2) if m.get("yield_on_cost") else None,
+            "annual_nois": result.get("annual_nois", []),
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

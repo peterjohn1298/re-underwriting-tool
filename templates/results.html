@@ -410,6 +410,105 @@
         </div>
         {% endif %}
 
+        <!-- ========== MONTE CARLO SIMULATION CARD ========== -->
+        {% if monte_carlo and not monte_carlo.get('error') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-dice-5"></i> Monte Carlo Simulation
+                    <span class="badge bg-secondary ms-2">{{ "{:,}".format(monte_carlo.n_iterations) }} iterations</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <!-- Summary Banner -->
+                <div class="alert {% if monte_carlo.mc_signal == 'POSITIVE' %}alert-success{% elif monte_carlo.mc_signal == 'WARNING' %}alert-danger{% else %}alert-info{% endif %} text-center mb-3">
+                    <h5 class="mb-1">{{ monte_carlo.summary }}</h5>
+                </div>
+
+                <!-- Probability Cards -->
+                <div class="row g-3 mb-3">
+                    {% for threshold, prob in monte_carlo.probabilities.items() %}
+                    <div class="col-md-3 col-6">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body text-center py-2">
+                                <small class="text-muted d-block">{{ threshold }}</small>
+                                <h4 class="{% if prob >= 70 %}text-success{% elif prob >= 40 %}text-warning{% else %}text-danger{% endif %} mb-0">{{ "%.1f"|format(prob) }}%</h4>
+                            </div>
+                        </div>
+                    </div>
+                    {% endfor %}
+                </div>
+
+                <!-- Percentile Table -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-5">
+                        <h6 class="text-gold">IRR Percentiles</h6>
+                        <table class="table table-dark table-sm table-striped">
+                            <thead><tr><th>Percentile</th><th class="text-end">IRR</th></tr></thead>
+                            <tbody>
+                                {% for pct, val in monte_carlo.percentiles.items() %}
+                                <tr><td>{{ pct }}</td><td class="text-end">{{ "%.1f"|format(val) }}%</td></tr>
+                                {% endfor %}
+                            </tbody>
+                        </table>
+                        <small class="text-muted">Mean IRR: {{ "%.1f"|format(monte_carlo.mean_irr) }}% | Std Dev: {{ "%.1f"|format(monte_carlo.std_irr) }}%</small>
+                    </div>
+                    <div class="col-md-7">
+                        <h6 class="text-gold">IRR Distribution</h6>
+                        <canvas id="mcHistogram" height="200"></canvas>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ========== BACKTEST VALIDATION CARD ========== -->
+        {% if backtest and not backtest.get('error') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-clipboard-data"></i> Model Backtest Validation
+                    <span class="badge bg-{% if backtest.quality == 'STRONG' %}success{% elif backtest.quality == 'MODERATE' %}info{% elif backtest.quality == 'FAIR' %}warning{% else %}danger{% endif %} ms-2">{{ backtest.quality }}</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-3">
+                    <div class="col-md-2 text-center">
+                        <small class="text-muted d-block">MAE</small>
+                        <h4 class="text-gold">{{ "%.3f"|format(backtest.mae) }}%</h4>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <small class="text-muted d-block">RMSE</small>
+                        <h4 class="text-gold">{{ "%.3f"|format(backtest.rmse) }}%</h4>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <small class="text-muted d-block">Direction Acc.</small>
+                        <h4 class="text-gold">{% if backtest.direction_accuracy is not none %}{{ "%.1f"|format(backtest.direction_accuracy) }}%{% else %}N/A{% endif %}</h4>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <small class="text-muted d-block">Mean Actual</small>
+                        <h4 class="text-gold">{{ "%.2f"|format(backtest.mean_actual) }}%</h4>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <small class="text-muted d-block">Mean Predicted</small>
+                        <h4 class="text-gold">{{ "%.2f"|format(backtest.mean_predicted) }}%</h4>
+                    </div>
+                    <div class="col-md-2 text-center">
+                        <small class="text-muted d-block">Train/Test Split</small>
+                        <h4 class="text-gold">{{ backtest.train_periods }}/{{ backtest.test_periods }}</h4>
+                    </div>
+                </div>
+
+                {% if backtest.has_blended %}
+                <div class="alert alert-info py-2 mb-3">
+                    <small><i class="bi bi-info-circle"></i> Blended model (ZORI+CPI): MAE {{ "%.3f"|format(backtest.blended_mae) }}%, RMSE {{ "%.3f"|format(backtest.blended_rmse) }}%</small>
+                </div>
+                {% endif %}
+
+                <canvas id="backtestChart" height="150"></canvas>
+                <small class="text-muted">Time-based {{ backtest.split_pct }}%/{{ 100 - backtest.split_pct }}% train/test split on {{ backtest.total_periods }} CPI Shelter observations</small>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- Charts Row -->
         <div class="row g-3 mb-4">
             <div class="col-md-6">
@@ -619,25 +718,106 @@
         </div>
         {% endif %}
 
+        <!-- ========== INTERACTIVE WHAT-IF ANALYSIS ========== -->
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-sliders"></i> Interactive What-If Analysis
+                    <span class="badge bg-info ms-2">Live</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-4 mb-4">
+                    <!-- Sliders -->
+                    <div class="col-md-3 col-6">
+                        <label class="form-label text-muted">Rent Growth: <span id="rg_val" class="text-gold">{{ "%.1f"|format(deal.revenue_growth_rate * 100) }}%</span></label>
+                        <input type="range" class="form-range" id="slider_rg" min="0" max="8" step="0.1" value="{{ "%.1f"|format(deal.revenue_growth_rate * 100) }}">
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <label class="form-label text-muted">Exit Cap Spread: <span id="ec_val" class="text-gold">{{ "%.0f"|format(deal.exit_cap_rate_spread * 10000) }}bps</span></label>
+                        <input type="range" class="form-range" id="slider_ec" min="-50" max="100" step="5" value="{{ "%.0f"|format(deal.exit_cap_rate_spread * 10000) }}">
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <label class="form-label text-muted">Occupancy: <span id="occ_val" class="text-gold">{{ "%.0f"|format(deal.occupancy * 100) }}%</span></label>
+                        <input type="range" class="form-range" id="slider_occ" min="75" max="99" step="1" value="{{ "%.0f"|format(deal.occupancy * 100) }}">
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <label class="form-label text-muted">Expense Growth: <span id="eg_val" class="text-gold">{{ "%.1f"|format(deal.expense_growth_rate * 100) }}%</span></label>
+                        <input type="range" class="form-range" id="slider_eg" min="0" max="6" step="0.1" value="{{ "%.1f"|format(deal.expense_growth_rate * 100) }}">
+                    </div>
+                </div>
+
+                <!-- Live-updating metrics -->
+                <div class="row g-3 mb-3">
+                    <div class="col-md-3 col-6">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body text-center py-2">
+                                <small class="text-muted d-block">Levered IRR</small>
+                                <h4 id="wi_irr" class="text-gold mb-0">{% if m.levered_irr is not none %}{{ "%.1f"|format(m.levered_irr * 100) }}%{% else %}N/A{% endif %}</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body text-center py-2">
+                                <small class="text-muted d-block">Equity Multiple</small>
+                                <h4 id="wi_em" class="text-gold mb-0">{{ "%.2f"|format(m.equity_multiple) }}x</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body text-center py-2">
+                                <small class="text-muted d-block">DSCR (Yr 1)</small>
+                                <h4 id="wi_dscr" class="text-gold mb-0">{{ "%.2f"|format(m.dscr_yr1) }}x</h4>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="col-md-3 col-6">
+                        <div class="card bg-dark border-secondary">
+                            <div class="card-body text-center py-2">
+                                <small class="text-muted d-block">Cash-on-Cash</small>
+                                <h4 id="wi_coc" class="text-gold mb-0">{{ "%.1f"|format(m.cash_on_cash_yr1 * 100) }}%</h4>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <canvas id="whatifChart" height="130"></canvas>
+            </div>
+        </div>
+
         <!-- Download Buttons -->
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy"><h6 class="mb-0">Download Deliverables</h6></div>
             <div class="card-body text-center">
                 <div class="row g-3 justify-content-center">
                     <div class="col-md-4">
-                        <a href="/api/download/{{ job_id }}/excel" class="btn btn-success btn-lg w-100">
+                        <a href="/api/download/{{ job_id }}/file/excel" class="btn btn-success btn-lg w-100">
                             <i class="bi bi-file-earmark-spreadsheet fs-4"></i><br>
                             Excel Workbook
                         </a>
                     </div>
                     <div class="col-md-4">
-                        <a href="/api/download/{{ job_id }}/word" class="btn btn-primary btn-lg w-100">
+                        <a href="/api/download/{{ job_id }}/file/word" class="btn btn-primary btn-lg w-100">
                             <i class="bi bi-file-earmark-word fs-4"></i><br>
                             Investment Memo
                         </a>
                     </div>
+                    <div class="col-md-4">
+                        <a href="/api/download/{{ job_id }}/file/pdf" class="btn btn-danger btn-lg w-100">
+                            <i class="bi bi-file-earmark-pdf fs-4"></i><br>
+                            PDF Report
+                        </a>
+                    </div>
                 </div>
             </div>
+        </div>
+        <!-- Save for Comparison Button -->
+        <div class="text-center mb-4">
+            <button id="saveForCompare" class="btn btn-outline-gold btn-sm" onclick="saveDeal()">
+                <i class="bi bi-bookmark-plus"></i> Save for Comparison
+            </button>
+            <span id="saveStatus" class="ms-2 text-muted"></span>
         </div>
     </div>
 </div>
@@ -645,6 +825,23 @@
 
 {% block scripts %}
 <script>
+function saveDeal() {
+    fetch('/api/save_deal/{{ job_id }}', { method: 'POST' })
+        .then(r => r.json())
+        .then(data => {
+            const btn = document.getElementById('saveForCompare');
+            const status = document.getElementById('saveStatus');
+            if (data.saved) {
+                btn.classList.replace('btn-outline-gold', 'btn-success');
+                btn.innerHTML = '<i class="bi bi-bookmark-check-fill"></i> Saved';
+                status.textContent = 'Deal saved for comparison';
+            } else {
+                status.textContent = data.error || 'Error saving';
+            }
+        })
+        .catch(() => { document.getElementById('saveStatus').textContent = 'Error saving'; });
+}
+
 document.addEventListener('DOMContentLoaded', function() {
     const noiData = {{ results.annual_nois | tojson }};
     const btcfData = {{ results.annual_btcfs | tojson }};
@@ -790,6 +987,183 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
     {% endif %}
+
+    // Monte Carlo Histogram
+    {% if monte_carlo and not monte_carlo.get('error') %}
+    const mcBins = {{ monte_carlo.histogram_bins | tojson }};
+    const mcCounts = {{ monte_carlo.histogram_counts | tojson }};
+    const mcLabels = mcCounts.map((_, i) => mcBins[i].toFixed(1) + '%');
+    const mcColors = mcCounts.map((_, i) => {
+        const midpoint = (mcBins[i] + mcBins[i+1]) / 2;
+        if (midpoint >= 15) return 'rgba(40, 167, 69, 0.8)';
+        if (midpoint >= 12) return 'rgba(40, 167, 69, 0.6)';
+        if (midpoint >= 8) return 'rgba(200, 169, 81, 0.7)';
+        if (midpoint >= 0) return 'rgba(255, 193, 7, 0.6)';
+        return 'rgba(220, 53, 69, 0.7)';
+    });
+
+    new Chart(document.getElementById('mcHistogram'), {
+        type: 'bar',
+        data: {
+            labels: mcLabels,
+            datasets: [{
+                label: 'Frequency',
+                data: mcCounts,
+                backgroundColor: mcColors,
+                borderColor: '#1B2A4A',
+                borderWidth: 1
+            }]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { display: false } },
+            scales: {
+                y: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' }, title: { display: true, text: 'Frequency', color: '#aaa' } },
+                x: { ticks: { color: '#aaa', maxRotation: 45 }, grid: { display: false }, title: { display: true, text: 'IRR', color: '#aaa' } }
+            }
+        }
+    });
+    {% endif %}
+
+    // Backtest Chart
+    {% if backtest and not backtest.get('error') %}
+    const btActual = {{ backtest.actual_values | tojson }};
+    const btPredicted = {{ backtest.predicted_values | tojson }};
+    const btDates = {{ backtest.test_dates | tojson }};
+    const btDatasets = [
+        {
+            label: 'Actual',
+            data: btActual,
+            borderColor: '#28a745',
+            backgroundColor: 'rgba(40, 167, 69, 0.1)',
+            fill: false,
+            tension: 0.3,
+            pointRadius: 4
+        },
+        {
+            label: 'Predicted (CPI)',
+            data: btPredicted,
+            borderColor: '#C8A951',
+            borderDash: [5, 5],
+            fill: false,
+            tension: 0.3,
+            pointRadius: 4
+        }
+    ];
+    {% if backtest.blended_values %}
+    btDatasets.push({
+        label: 'Blended (ZORI+CPI)',
+        data: {{ backtest.blended_values | tojson }},
+        borderColor: '#4dabf7',
+        borderDash: [3, 3],
+        fill: false,
+        tension: 0.3,
+        pointRadius: 3
+    });
+    {% endif %}
+    new Chart(document.getElementById('backtestChart'), {
+        type: 'line',
+        data: { labels: btDates, datasets: btDatasets },
+        options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#aaa' } } },
+            scales: {
+                y: { ticks: { callback: v => v.toFixed(1) + '%', color: '#aaa' }, grid: { color: '#2a3a4f' } },
+                x: { ticks: { color: '#aaa', maxRotation: 45 }, grid: { color: '#2a3a4f' } }
+            }
+        }
+    });
+    {% endif %}
+
+    // ===== Interactive What-If =====
+    const wiNOIs = {{ results.annual_nois | tojson }};
+    const wiYears = wiNOIs.map((_, i) => 'Year ' + (i + 1));
+    const wiChart = new Chart(document.getElementById('whatifChart'), {
+        type: 'bar',
+        data: {
+            labels: wiYears,
+            datasets: [
+                {
+                    label: 'Base NOI',
+                    data: [...wiNOIs],
+                    backgroundColor: 'rgba(27, 42, 74, 0.5)',
+                    borderColor: '#1B2A4A',
+                    borderWidth: 1
+                },
+                {
+                    label: 'What-If NOI',
+                    data: [...wiNOIs],
+                    backgroundColor: 'rgba(200, 169, 81, 0.7)',
+                    borderColor: '#C8A951',
+                    borderWidth: 1
+                }
+            ]
+        },
+        options: {
+            responsive: true,
+            plugins: { legend: { labels: { color: '#aaa' } } },
+            scales: {
+                y: { ticks: { callback: v => '$' + (v/1e6).toFixed(2) + 'M', color: '#aaa' }, grid: { color: '#2a3a4f' } },
+                x: { ticks: { color: '#aaa' }, grid: { color: '#2a3a4f' } }
+            }
+        }
+    });
+
+    let wiTimeout = null;
+    const sliders = ['slider_rg', 'slider_ec', 'slider_occ', 'slider_eg'];
+    const valSpans = { slider_rg: 'rg_val', slider_ec: 'ec_val', slider_occ: 'occ_val', slider_eg: 'eg_val' };
+
+    function updateWhatIf() {
+        const params = {
+            rent_growth: parseFloat(document.getElementById('slider_rg').value),
+            exit_cap_spread: parseFloat(document.getElementById('slider_ec').value),
+            occupancy: parseFloat(document.getElementById('slider_occ').value),
+            expense_growth: parseFloat(document.getElementById('slider_eg').value)
+        };
+
+        fetch('/api/whatif/{{ job_id }}', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(params)
+        })
+        .then(r => r.json())
+        .then(data => {
+            if (data.error) return;
+            document.getElementById('wi_irr').textContent = data.levered_irr !== null ? data.levered_irr.toFixed(1) + '%' : 'N/A';
+            document.getElementById('wi_em').textContent = data.equity_multiple !== null ? data.equity_multiple.toFixed(2) + 'x' : 'N/A';
+            document.getElementById('wi_dscr').textContent = data.dscr_yr1 !== null ? data.dscr_yr1.toFixed(2) + 'x' : 'N/A';
+            document.getElementById('wi_coc').textContent = data.cash_on_cash_yr1 !== null ? data.cash_on_cash_yr1.toFixed(1) + '%' : 'N/A';
+
+            // Color IRR
+            const irrEl = document.getElementById('wi_irr');
+            if (data.levered_irr >= 15) irrEl.className = 'text-success mb-0';
+            else if (data.levered_irr >= 12) irrEl.className = 'text-gold mb-0';
+            else if (data.levered_irr >= 8) irrEl.className = 'text-warning mb-0';
+            else irrEl.className = 'text-danger mb-0';
+
+            // Update chart
+            if (data.annual_nois) {
+                wiChart.data.datasets[1].data = data.annual_nois;
+                wiChart.update();
+            }
+        })
+        .catch(() => {});
+    }
+
+    sliders.forEach(id => {
+        document.getElementById(id).addEventListener('input', function() {
+            // Update display value
+            const spanId = valSpans[id];
+            const val = this.value;
+            if (id === 'slider_ec') document.getElementById(spanId).textContent = val + 'bps';
+            else if (id === 'slider_occ') document.getElementById(spanId).textContent = val + '%';
+            else document.getElementById(spanId).textContent = parseFloat(val).toFixed(1) + '%';
+
+            // Debounced API call
+            if (wiTimeout) clearTimeout(wiTimeout);
+            wiTimeout = setTimeout(updateWhatIf, 300);
+        });
+    });
 });
 </script>
 {% endblock %}

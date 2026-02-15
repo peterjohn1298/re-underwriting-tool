@@ -23,11 +23,14 @@ class PropertyValuationModel:
         "property_class_encoded", "market_cap_rate",
         "median_income", "population_millions", "unemployment_rate",
         "mortgage_rate",
+        # Enhanced macro features
+        "cpi_yoy_inflation", "housing_starts", "rental_vacancy_rate",
+        "treasury_spread", "median_rent_census",
     ]
 
     def __init__(self):
         self.model = GradientBoostingRegressor(
-            n_estimators=200,
+            n_estimators=250,
             max_depth=4,
             learning_rate=0.1,
             min_samples_split=10,
@@ -43,17 +46,26 @@ class PropertyValuationModel:
     def _generate_training_data(self, market_data: dict) -> pd.DataFrame:
         """Generate synthetic training data calibrated to real market indicators."""
         np.random.seed(42)
-        n_samples = 500
+        n_samples = 800
 
         # Extract real market calibration points
         demo = market_data.get("demographics", {}).get("structured", {})
         cap_data = market_data.get("cap_rates", {})
+        macro = market_data.get("macro", {})
+
         real_median_income = demo.get("median_income") or 65000
         real_population = demo.get("population") or 5_000_000
         real_unemployment = demo.get("unemployment_rate") or 4.0
         real_cap_rate = cap_data.get("average_cap_rate") or 5.5
         treasury_10yr = cap_data.get("treasury_10yr")
         real_mortgage = (treasury_10yr + 1.75) if treasury_10yr else 6.75
+
+        # New macro calibration points
+        real_cpi_inflation = macro.get("cpi_yoy_inflation") or 3.2
+        real_housing_starts = macro.get("housing_starts") or 1400
+        real_rental_vacancy = macro.get("rental_vacancy_rate") or 6.5
+        real_treasury_spread = macro.get("treasury_spread") or 0.5
+        real_median_rent = demo.get("median_rent") or 1400
 
         records = []
         for i in range(n_samples):
@@ -85,15 +97,32 @@ class PropertyValuationModel:
             mort_rate = real_mortgage + np.random.normal(0, 0.5)
             mort_rate = max(3.0, min(9.0, mort_rate))
 
+            # New macro features with variation
+            cpi_inf = real_cpi_inflation + np.random.normal(0, 1.0)
+            cpi_inf = max(-1.0, min(10.0, cpi_inf))
+            h_starts = real_housing_starts + np.random.normal(0, 200)
+            h_starts = max(500, min(2500, h_starts))
+            rent_vac = real_rental_vacancy + np.random.normal(0, 1.5)
+            rent_vac = max(2.0, min(15.0, rent_vac))
+            t_spread = real_treasury_spread + np.random.normal(0, 0.5)
+            t_spread = max(-2.0, min(3.0, t_spread))
+            med_rent_census = real_median_rent * np.random.normal(1.0, 0.15)
+            med_rent_census = max(500, min(4000, med_rent_census))
+
             base_value_per_unit = (noi_per_unit / (cap_rate / 100))
             age_factor = 1.0 + (year_built - 1990) * 0.003
             class_factor = {1: 0.85, 2: 1.0, 3: 1.20}[prop_class]
             occ_factor = 1.0 + (occupancy - 0.93) * 2.0
             size_factor = 1.0 - (units - 100) * 0.0003
             income_factor = 1.0 + (med_income - 65000) / 200000
+            # Macro adjustments to value
+            inflation_factor = 1.0 + (cpi_inf - 3.0) * 0.01
+            vacancy_factor = 1.0 - (rent_vac - 6.5) * 0.008
+            starts_factor = 1.0 - (h_starts - 1400) * 0.00005
 
             value_per_unit = (base_value_per_unit * age_factor * class_factor
-                              * occ_factor * size_factor * income_factor)
+                              * occ_factor * size_factor * income_factor
+                              * inflation_factor * vacancy_factor * starts_factor)
             noise = np.random.normal(1.0, 0.08)
             value_per_unit = max(50000, value_per_unit * noise)
 
@@ -111,6 +140,11 @@ class PropertyValuationModel:
                 "population_millions": round(pop_m, 2),
                 "unemployment_rate": round(unemp, 1),
                 "mortgage_rate": round(mort_rate, 2),
+                "cpi_yoy_inflation": round(cpi_inf, 1),
+                "housing_starts": round(h_starts),
+                "rental_vacancy_rate": round(rent_vac, 1),
+                "treasury_spread": round(t_spread, 2),
+                "median_rent_census": round(med_rent_census),
                 "value_per_unit": round(value_per_unit),
             })
 
@@ -123,7 +157,7 @@ class PropertyValuationModel:
             X = df[self.FEATURES]
             y = df["value_per_unit"]
 
-            # Fix #2: Honest train/test split (80/20)
+            # Honest train/test split (80/20)
             X_train, X_test, y_train, y_test = train_test_split(
                 X, y, test_size=0.20, random_state=42
             )
@@ -151,9 +185,9 @@ class PropertyValuationModel:
 
             self.is_trained = True
             logger.info(
-                f"ML Valuation trained. Train R²={self.train_r2}, "
-                f"Test R²={self.test_r2}, Test MAE=${self.test_mae:,.0f}, "
-                f"Test MAPE={self.test_mape}%"
+                f"ML Valuation trained ({len(self.FEATURES)} features, {len(X_train)} train / {len(X_test)} test). "
+                f"Train R²={self.train_r2}, Test R²={self.test_r2}, "
+                f"Test MAE=${self.test_mae:,.0f}, Test MAPE={self.test_mape}%"
             )
 
         except Exception as e:
@@ -171,6 +205,7 @@ class PropertyValuationModel:
 
             demo = market_data.get("demographics", {}).get("structured", {})
             cap_data = market_data.get("cap_rates", {})
+            macro = market_data.get("macro", {})
 
             class_str = deal.get("property_type", "")
             if "Class A" in class_str:
@@ -199,6 +234,12 @@ class PropertyValuationModel:
                 "unemployment_rate": demo.get("unemployment_rate") or 4.0,
                 "mortgage_rate": (cap_data.get("treasury_10yr", 4.5) + 1.75)
                                  if cap_data.get("treasury_10yr") else 6.75,
+                # New macro features
+                "cpi_yoy_inflation": macro.get("cpi_yoy_inflation") or 3.2,
+                "housing_starts": macro.get("housing_starts") or 1400,
+                "rental_vacancy_rate": macro.get("rental_vacancy_rate") or 6.5,
+                "treasury_spread": macro.get("treasury_spread") or 0.5,
+                "median_rent_census": demo.get("median_rent") or 1400,
             }
 
             X = pd.DataFrame([features])
@@ -223,6 +264,9 @@ class PropertyValuationModel:
                                    [round(float(x), 4) for x in self.model.feature_importances_]))
             sorted_imp = dict(sorted(importances.items(), key=lambda x: x[1], reverse=True))
 
+            n_train = int(800 * 0.80)
+            n_test = 800 - n_train
+
             return {
                 "predicted_value_per_unit": round(predicted_ppu),
                 "predicted_total_value": round(predicted_total),
@@ -230,18 +274,18 @@ class PropertyValuationModel:
                 "premium_discount_pct": round(premium_discount, 1),
                 "assessment": assessment,
                 "feature_importances": sorted_imp,
-                # Honest metrics — Fix #2
                 "train_r2": self.train_r2,
                 "test_r2": self.test_r2,
-                "r2_score": self.test_r2,  # backward compat — now shows TEST R²
+                "r2_score": self.test_r2,  # backward compat
                 "test_mae": self.test_mae,
                 "test_mape": self.test_mape,
                 "model_type": "GradientBoostingRegressor",
-                "training_samples": 400,  # 80% of 500
-                "test_samples": 100,      # 20% of 500
+                "training_samples": n_train,
+                "test_samples": n_test,
                 "features_used": len(self.FEATURES),
                 "confidence_note": (
-                    f"Model trained on synthetic data calibrated to FRED/Census macro indicators. "
+                    f"Model trained on {800} synthetic records calibrated to FRED/Census macro indicators "
+                    f"using {len(self.FEATURES)} features. "
                     f"Test set MAPE: {self.test_mape}%. Assessment threshold: +/-{threshold:.0f}%. "
                     f"This is NOT a substitute for a professional appraisal."
                 ),

@@ -75,7 +75,9 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str,
                   ml_valuation: dict = None,
                   lease_analysis: dict = None,
                   rent_prediction: dict = None,
-                  sensitivity: dict = None) -> str:
+                  sensitivity: dict = None,
+                  backtest: dict = None,
+                  monte_carlo: dict = None) -> str:
     doc = Document()
     style = doc.styles["Normal"]
     style.font.name = "Calibri"
@@ -93,6 +95,8 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str,
     has_ml = ml_valuation and not ml_valuation.get("error")
     has_lease = lease_analysis and not lease_analysis.get("error")
     has_rent = rent_prediction and not rent_prediction.get("error")
+    has_backtest = backtest and not backtest.get("error") and has_rent
+    has_mc = monte_carlo and not monte_carlo.get("error")
 
     # ===== COVER PAGE =====
     for _ in range(6): doc.add_paragraph()
@@ -154,6 +158,12 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str,
         section_num += 1
     if has_rent:
         toc_items.append(f"{section_num}. Predictive Rent Growth Model")
+        section_num += 1
+    if has_backtest:
+        toc_items.append(f"{section_num}. Model Backtest Validation")
+        section_num += 1
+    if has_mc:
+        toc_items.append(f"{section_num}. Monte Carlo Simulation")
         section_num += 1
     toc_items.append(f"{section_num}. Next Steps")
 
@@ -627,6 +637,81 @@ def generate_word(pro_forma: dict, market_data: dict, job_id: str,
                 f"Recent historical CPI Shelter growth rates: "
                 f"{', '.join(f'{r:.1f}%' for r in rent_prediction['historical_rates'][-5:])}"
             )
+        doc.add_page_break()
+
+    # ===== OPTIONAL: BACKTEST VALIDATION =====
+    if has_backtest:
+        _heading(doc, f"{section_num}. Model Backtest Validation", 1)
+        section_num += 1
+
+        doc.add_paragraph(
+            f"The rent prediction model was backtested using a {backtest['split_pct']}% / "
+            f"{100 - backtest['split_pct']}% time-based train/test split on "
+            f"{backtest['total_periods']} historical CPI Shelter growth observations."
+        )
+        doc.add_paragraph()
+
+        bt_rows = [
+            ["Train Periods", str(backtest["train_periods"])],
+            ["Test Periods", str(backtest["test_periods"])],
+            ["MAE", f"{backtest['mae']:.3f}%"],
+            ["RMSE", f"{backtest['rmse']:.3f}%"],
+            ["Direction Accuracy", f"{backtest['direction_accuracy']}%" if backtest.get("direction_accuracy") else "N/A"],
+            ["Mean Actual Growth", f"{backtest['mean_actual']:.2f}%"],
+            ["Mean Predicted Growth", f"{backtest['mean_predicted']:.2f}%"],
+            ["Quality Assessment", backtest.get("quality", "N/A")],
+        ]
+        if backtest.get("has_blended"):
+            bt_rows.append(["Blended MAE (ZORI+CPI)", f"{backtest['blended_mae']:.3f}%"])
+            bt_rows.append(["Blended RMSE (ZORI+CPI)", f"{backtest['blended_rmse']:.3f}%"])
+
+        _table(doc, ["Metric", "Value"], bt_rows)
+        doc.add_paragraph()
+
+        # Actual vs Predicted comparison
+        if backtest.get("actual_values") and backtest.get("predicted_values"):
+            _heading(doc, "Actual vs Predicted", 2)
+            comp_rows = []
+            for i in range(len(backtest["actual_values"])):
+                date_label = backtest["test_dates"][i] if i < len(backtest.get("test_dates", [])) else f"T+{i+1}"
+                comp_rows.append([
+                    date_label,
+                    f"{backtest['actual_values'][i]:.2f}%",
+                    f"{backtest['predicted_values'][i]:.2f}%",
+                    f"{backtest['actual_values'][i] - backtest['predicted_values'][i]:.3f}%",
+                ])
+            _table(doc, ["Period", "Actual", "Predicted", "Error"], comp_rows)
+        doc.add_page_break()
+
+    # ===== OPTIONAL: MONTE CARLO SIMULATION =====
+    if has_mc:
+        _heading(doc, f"{section_num}. Monte Carlo Simulation", 1)
+        section_num += 1
+
+        doc.add_paragraph(
+            f"A Monte Carlo simulation with {monte_carlo.get('n_iterations', 1000):,} iterations was run "
+            f"to assess the probability distribution of investment returns. Key input parameters were "
+            f"randomized within realistic ranges."
+        )
+        doc.add_paragraph()
+
+        p = doc.add_paragraph()
+        p.add_run("Key Finding: ").bold = True
+        p.add_run(monte_carlo.get("summary", ""))
+        doc.add_paragraph()
+
+        # Percentiles
+        _heading(doc, "IRR Percentiles", 2)
+        pctile_rows = [[k, f"{v:.1f}%"] for k, v in monte_carlo.get("percentiles", {}).items()]
+        if pctile_rows:
+            _table(doc, ["Percentile", "IRR"], pctile_rows)
+        doc.add_paragraph()
+
+        # Probabilities
+        _heading(doc, "Probability Analysis", 2)
+        prob_rows = [[k, f"{v:.1f}%"] for k, v in monte_carlo.get("probabilities", {}).items()]
+        if prob_rows:
+            _table(doc, ["Threshold", "Probability"], prob_rows)
         doc.add_page_break()
 
     # ===== NEXT STEPS =====
