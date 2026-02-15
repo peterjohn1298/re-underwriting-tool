@@ -44,6 +44,6 @@ echo.
 start "" cmd /c "timeout /t 2 /nobreak >nul & start http://localhost:5001"
 
 :: Run Flask
-python -c "from app import app; app.run(host='0.0.0.0', port=5001)"
+python -B -c "from app import app; app.run(host='0.0.0.0', port=5001, debug=True, use_reloader=False)"
 
 pause
