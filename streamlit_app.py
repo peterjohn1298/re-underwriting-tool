@@ -67,11 +67,61 @@ def _secret(key: str, fallback: str = "") -> str:
         return fallback
 
 
-# ── Header ────────────────────────────────────────────────────────────────────
-st.title("🏢 RE Underwriting Intelligence Platform")
-st.caption("Institutional-Grade Multifamily Analysis • Powered by AI & ML")
-st.markdown("---")
+# ── Demo values (Austin, TX — 100-unit Class B) ───────────────────────────────
+DEMO_VALUES = {
+    "property_type":        "Multifamily - Class B",
+    "address":              "2100 S Lamar Blvd, Austin, TX 78704",
+    "year_built":           2005,
+    "purchase_price":       12_500_000.0,
+    "current_noi":          750_000.0,
+    "total_units":          100,
+    "total_sf":             85_000.0,
+    "in_place_rent":        1_450.0,
+    "market_rent":          1_600.0,
+    "occupancy":            94,
+    "hold_period_years":    7,
+    "deferred_maintenance": 250_000.0,
+    "planned_capex":        500_000.0,
+    "capex_description":    "Unit renovations and lobby refresh",
+    # Unit mix
+    "um_count_Studio": 0,   "um_rent_Studio": 0.0,   "um_market_rent_Studio": 0.0,
+    "um_count_1BR":    40,  "um_rent_1BR":    1_250.0, "um_market_rent_1BR":  1_400.0,
+    "um_count_2BR":    50,  "um_rent_2BR":    1_600.0, "um_market_rent_2BR":  1_750.0,
+    "um_count_3BR":    10,  "um_rent_3BR":    1_900.0, "um_market_rent_3BR":  2_050.0,
+    # Financing / overrides (all at default)
+    "ltv":                        65,
+    "interest_rate":              6.75,
+    "amortization_years":         30,
+    "loan_term_years":            10,
+    "io_period_years":            0,
+    "closing_costs_pct":          3.0,
+    "sale_costs_pct":             2.5,
+    "replacement_reserves_per_unit": 250.0,
+    "revenue_growth_rate":        3.0,
+    "expense_growth_rate":        3.0,
+    "management_fee_pct":         3.5,
+    "exit_cap_rate_spread":       25,
+    "tax_rate":                   25.0,
+    "land_value_pct":             20.0,
+    "lp_equity_pct":              90.0,
+    "preferred_return":           8.0,
+    "promote_pct":                20.0,
+    "override_property_tax":      0.0,
+    "override_insurance":         0.0,
+    "override_utilities":         0.0,
+    "override_repairs":           0.0,
+    "override_general_admin":     0.0,
+    "override_other_expenses":    0.0,
+}
 
+PROPERTY_TYPES = [
+    "Multifamily - Class A",
+    "Multifamily - Class B",
+    "Multifamily - Class C",
+    "Mixed-Use - Class B",
+    "Student Housing - Class B",
+    "Senior Housing - Class B",
+]
 
 # ── Helper functions (defined before form so they are available on submit) ────
 
@@ -218,6 +268,27 @@ def _build_recommendation(pro_forma: dict, ml_valuation=None,
     }
 
 
+# ── Header ────────────────────────────────────────────────────────────────────
+st.title("🏢 RE Underwriting Intelligence Platform")
+st.caption("Institutional-Grade Multifamily Analysis • Powered by AI & ML")
+
+# ── Demo button (outside form so it can trigger rerun) ────────────────────────
+col_hdr, col_demo = st.columns([5, 1])
+with col_demo:
+    if st.button("📋 Load Demo Deal", use_container_width=True,
+                 help="Pre-fill with a sample Austin, TX 100-unit Class B deal"):
+        st.session_state["demo"] = DEMO_VALUES.copy()
+        st.rerun()
+
+if st.session_state.get("demo"):
+    st.info("✅ Demo deal loaded — **2100 S Lamar Blvd, Austin, TX** (100 units, $12.5M). "
+            "Click **Run Full Analysis** to proceed.")
+
+st.markdown("---")
+
+# ── Read current demo values (empty dict if not loaded) ──────────────────────
+d = st.session_state.get("demo", {})
+
 # ── Input Form ────────────────────────────────────────────────────────────────
 with st.form("deal_form"):
     tab1, tab2, tab3, tab4 = st.tabs([
@@ -232,46 +303,54 @@ with st.form("deal_form"):
         st.markdown('<div class="section-header">Property Information</div>', unsafe_allow_html=True)
         c1, c2, c3 = st.columns(3)
         with c1:
-            property_type = st.selectbox("Property Type", [
-                "Multifamily - Class A",
-                "Multifamily - Class B",
-                "Multifamily - Class C",
-                "Mixed-Use - Class B",
-                "Student Housing - Class B",
-                "Senior Housing - Class B",
-            ], index=1)
-            address = st.text_input("Address", placeholder="123 Main St, Austin, TX 78701")
-            year_built = st.number_input("Year Built", min_value=1900, max_value=2030, value=2000, step=1)
+            _ptype_default = d.get("property_type", "Multifamily - Class B")
+            _ptype_idx = PROPERTY_TYPES.index(_ptype_default) if _ptype_default in PROPERTY_TYPES else 1
+            property_type = st.selectbox("Property Type", PROPERTY_TYPES, index=_ptype_idx)
+            address = st.text_input("Address",
+                                    value=d.get("address", ""),
+                                    placeholder="123 Main St, Austin, TX 78701")
+            year_built = st.number_input("Year Built", min_value=1900, max_value=2030,
+                                          value=d.get("year_built", 2000), step=1)
         with c2:
-            purchase_price = st.number_input("Purchase Price ($)", min_value=0.0, value=5_000_000.0,
+            purchase_price = st.number_input("Purchase Price ($)", min_value=0.0,
+                                              value=d.get("purchase_price", 5_000_000.0),
                                               step=50_000.0, format="%.0f")
-            current_noi = st.number_input("Current NOI ($/yr)", min_value=0.0, value=0.0,
+            current_noi = st.number_input("Current NOI ($/yr)", min_value=0.0,
+                                           value=d.get("current_noi", 0.0),
                                            step=10_000.0, format="%.0f",
                                            help="Leave 0 to back-calculate from rent & occupancy")
-            total_units = st.number_input("Total Units", min_value=0, value=100, step=1)
+            total_units = st.number_input("Total Units", min_value=0,
+                                           value=d.get("total_units", 100), step=1)
         with c3:
-            total_sf = st.number_input("Total Sq Ft", min_value=0.0, value=0.0,
+            total_sf = st.number_input("Total Sq Ft", min_value=0.0,
+                                        value=d.get("total_sf", 0.0),
                                         step=1_000.0, format="%.0f",
                                         help="Optional — used for $/SF metrics")
             in_place_rent = st.number_input("In-Place Rent ($/unit/mo)", min_value=0.0,
-                                             value=1_200.0, step=25.0, format="%.0f")
+                                             value=d.get("in_place_rent", 1_200.0),
+                                             step=25.0, format="%.0f")
             market_rent = st.number_input("Market Rent ($/unit/mo)", min_value=0.0,
-                                           value=0.0, step=25.0, format="%.0f",
+                                           value=d.get("market_rent", 0.0),
+                                           step=25.0, format="%.0f",
                                            help="Leave 0 if same as in-place rent")
 
         st.markdown('<div class="section-header">Operating Details</div>', unsafe_allow_html=True)
         c4, c5, c6 = st.columns(3)
         with c4:
-            occupancy = st.slider("Occupancy (%)", min_value=50, max_value=100, value=92, step=1)
+            occupancy = st.slider("Occupancy (%)", min_value=50, max_value=100,
+                                   value=d.get("occupancy", 92), step=1)
             hold_period_years = st.number_input("Hold Period (years)", min_value=1, max_value=30,
-                                                 value=7, step=1)
+                                                 value=d.get("hold_period_years", 7), step=1)
         with c5:
             deferred_maintenance = st.number_input("Deferred Maintenance ($)", min_value=0.0,
-                                                    value=0.0, step=10_000.0, format="%.0f")
-            planned_capex = st.number_input("Planned CapEx ($)", min_value=0.0, value=0.0,
+                                                    value=d.get("deferred_maintenance", 0.0),
+                                                    step=10_000.0, format="%.0f")
+            planned_capex = st.number_input("Planned CapEx ($)", min_value=0.0,
+                                             value=d.get("planned_capex", 0.0),
                                              step=10_000.0, format="%.0f")
         with c6:
             capex_description = st.text_area("CapEx Description",
+                                              value=d.get("capex_description", ""),
                                               placeholder="Roof, unit renovations, HVAC...",
                                               height=88)
 
@@ -288,15 +367,19 @@ with st.form("deal_form"):
             with um_cols[i]:
                 st.markdown(f"**{ut}**")
                 unit_mix_data[f"um_count_{ut}"] = st.number_input(
-                    "# Units", min_value=0, value=0, step=1, key=f"count_{ut}")
+                    "# Units", min_value=0,
+                    value=d.get(f"um_count_{ut}", 0),
+                    step=1, key=f"um_count_{ut}")
                 unit_mix_data[f"um_rent_{ut}"] = st.number_input(
-                    "In-Place Rent ($)", min_value=0.0, value=0.0, step=25.0,
-                    format="%.0f", key=f"rent_{ut}")
+                    "In-Place Rent ($)", min_value=0.0,
+                    value=d.get(f"um_rent_{ut}", 0.0),
+                    step=25.0, format="%.0f", key=f"um_rent_{ut}")
                 unit_mix_data[f"um_market_rent_{ut}"] = st.number_input(
-                    "Market Rent ($)", min_value=0.0, value=0.0, step=25.0,
-                    format="%.0f", key=f"mrent_{ut}")
+                    "Market Rent ($)", min_value=0.0,
+                    value=d.get(f"um_market_rent_{ut}", 0.0),
+                    step=25.0, format="%.0f", key=f"um_market_rent_{ut}")
 
-        # Live blended rent preview (shown within the form)
+        # Live blended rent preview
         total_um_units = sum(unit_mix_data.get(f"um_count_{ut}", 0) for ut in unit_types)
         if total_um_units > 0:
             weighted_sum = sum(
@@ -332,72 +415,96 @@ with st.form("deal_form"):
         st.markdown('<div class="section-header">Financing</div>', unsafe_allow_html=True)
         c9, c10, c11 = st.columns(3)
         with c9:
-            ltv = st.slider("LTV (%)", min_value=40, max_value=85, value=65, step=1)
+            ltv = st.slider("LTV (%)", min_value=40, max_value=85,
+                             value=d.get("ltv", 65), step=1)
             interest_rate = st.number_input("Interest Rate (%)", min_value=0.0, max_value=20.0,
-                                             value=6.75, step=0.25, format="%.2f")
+                                             value=d.get("interest_rate", 6.75),
+                                             step=0.25, format="%.2f")
             amortization_years = st.number_input("Amortization (years)", min_value=1, max_value=40,
-                                                  value=30, step=1)
+                                                  value=d.get("amortization_years", 30), step=1)
         with c10:
             loan_term_years = st.number_input("Loan Term (years)", min_value=1, max_value=30,
-                                               value=10, step=1)
+                                               value=d.get("loan_term_years", 10), step=1)
             io_period_years = st.number_input("I/O Period (years)", min_value=0, max_value=10,
-                                               value=0, step=1)
+                                               value=d.get("io_period_years", 0), step=1)
             closing_costs_pct = st.number_input("Closing Costs (%)", min_value=0.0, max_value=10.0,
-                                                 value=3.0, step=0.25, format="%.2f")
+                                                 value=d.get("closing_costs_pct", 3.0),
+                                                 step=0.25, format="%.2f")
         with c11:
             sale_costs_pct = st.number_input("Sale Costs (%)", min_value=0.0, max_value=10.0,
-                                              value=2.5, step=0.25, format="%.2f")
-            replacement_reserves_per_unit = st.number_input("Reserves ($/unit/yr)", min_value=0.0,
-                                                              value=250.0, step=50.0, format="%.0f")
+                                              value=d.get("sale_costs_pct", 2.5),
+                                              step=0.25, format="%.2f")
+            replacement_reserves_per_unit = st.number_input(
+                "Reserves ($/unit/yr)", min_value=0.0,
+                value=d.get("replacement_reserves_per_unit", 250.0),
+                step=50.0, format="%.0f")
 
         st.markdown('<div class="section-header">Growth Assumptions</div>', unsafe_allow_html=True)
         c12, c13 = st.columns(2)
         with c12:
             revenue_growth_rate = st.number_input("Revenue Growth (%/yr)", min_value=0.0,
-                                                   max_value=20.0, value=3.0, step=0.25, format="%.2f")
+                                                   max_value=20.0,
+                                                   value=d.get("revenue_growth_rate", 3.0),
+                                                   step=0.25, format="%.2f")
             expense_growth_rate = st.number_input("Expense Growth (%/yr)", min_value=0.0,
-                                                   max_value=20.0, value=3.0, step=0.25, format="%.2f")
+                                                   max_value=20.0,
+                                                   value=d.get("expense_growth_rate", 3.0),
+                                                   step=0.25, format="%.2f")
             management_fee_pct = st.number_input("Management Fee (%)", min_value=0.0, max_value=15.0,
-                                                   value=3.5, step=0.25, format="%.2f")
+                                                   value=d.get("management_fee_pct", 3.5),
+                                                   step=0.25, format="%.2f")
         with c13:
             exit_cap_rate_spread = st.number_input(
-                "Exit Cap Spread (bps)", min_value=-100, max_value=200, value=25, step=5,
+                "Exit Cap Spread (bps)", min_value=-100, max_value=200,
+                value=d.get("exit_cap_rate_spread", 25), step=5,
                 help="Basis points added to going-in cap rate at exit")
             tax_rate = st.number_input("Marginal Tax Rate (%)", min_value=0.0, max_value=50.0,
-                                        value=25.0, step=1.0, format="%.0f")
+                                        value=d.get("tax_rate", 25.0),
+                                        step=1.0, format="%.0f")
             land_value_pct = st.number_input("Land Value (%)", min_value=0.0, max_value=80.0,
-                                              value=20.0, step=5.0, format="%.0f",
+                                              value=d.get("land_value_pct", 20.0),
+                                              step=5.0, format="%.0f",
                                               help="Land % of purchase price (not depreciable)")
 
         st.markdown('<div class="section-header">Waterfall (LP/GP)</div>', unsafe_allow_html=True)
         c14, c15 = st.columns(2)
         with c14:
             lp_equity_pct = st.number_input("LP Equity (%)", min_value=0.0, max_value=100.0,
-                                             value=90.0, step=5.0, format="%.0f")
+                                             value=d.get("lp_equity_pct", 90.0),
+                                             step=5.0, format="%.0f")
             preferred_return = st.number_input("LP Preferred Return (%)", min_value=0.0,
-                                                max_value=20.0, value=8.0, step=0.5, format="%.1f")
+                                                max_value=20.0,
+                                                value=d.get("preferred_return", 8.0),
+                                                step=0.5, format="%.1f")
         with c15:
             promote_pct = st.number_input("GP Promote (%)", min_value=0.0, max_value=50.0,
-                                           value=20.0, step=5.0, format="%.0f")
+                                           value=d.get("promote_pct", 20.0),
+                                           step=5.0, format="%.0f")
 
         st.markdown('<div class="section-header">Expense Overrides (leave at 0 to auto-derive)</div>',
                     unsafe_allow_html=True)
         c16, c17, c18 = st.columns(3)
         with c16:
             override_property_tax = st.number_input("Property Tax ($/yr)", min_value=0.0,
-                                                     value=0.0, step=5_000.0, format="%.0f")
+                                                     value=d.get("override_property_tax", 0.0),
+                                                     step=5_000.0, format="%.0f")
             override_insurance = st.number_input("Insurance ($/yr)", min_value=0.0,
-                                                  value=0.0, step=1_000.0, format="%.0f")
+                                                  value=d.get("override_insurance", 0.0),
+                                                  step=1_000.0, format="%.0f")
         with c17:
             override_utilities = st.number_input("Utilities ($/yr)", min_value=0.0,
-                                                  value=0.0, step=1_000.0, format="%.0f")
+                                                  value=d.get("override_utilities", 0.0),
+                                                  step=1_000.0, format="%.0f")
             override_repairs = st.number_input("Repairs & Maint ($/yr)", min_value=0.0,
-                                                value=0.0, step=1_000.0, format="%.0f")
+                                                value=d.get("override_repairs", 0.0),
+                                                step=1_000.0, format="%.0f")
         with c18:
             override_general_admin = st.number_input("G&A ($/yr)", min_value=0.0,
-                                                      value=0.0, step=1_000.0, format="%.0f")
+                                                      value=d.get("override_general_admin", 0.0),
+                                                      step=1_000.0, format="%.0f")
             override_other_expenses = st.number_input("Other Expenses ($/yr)", min_value=0.0,
-                                                       value=0.0, step=1_000.0, format="%.0f")
+                                                       value=d.get("override_other_expenses", 0.0),
+                                                       step=1_000.0, format="%.0f")
 
     st.markdown("---")
     submitted = st.form_submit_button(
@@ -501,11 +608,9 @@ if submitted:
         from models.assumptions import derive_assumptions
         from services.market_research import run_full_research
 
-        # 1. Derive assumptions
         progress.progress(5, text="Deriving assumptions...")
         derived = derive_assumptions(deal)
 
-        # 2. Market research
         progress.progress(10, text="Fetching market data (FRED, Census, BLS, RentCast)...")
         avg_sq_ft = (int(deal.total_sf / deal.total_units)
                      if deal.total_units > 0 and deal.total_sf > 0 else None)
@@ -518,7 +623,6 @@ if submitted:
         )
         results_dict["market_data"] = market_data
 
-        # 3. Rent prediction (optional)
         rent_prediction = None
         backtest_result = None
         cpi_shelter = None
@@ -539,7 +643,6 @@ if submitted:
                     predicted_rates = rent_prediction.get("predicted_rates", [])
                     if predicted_rates:
                         deal.yearly_revenue_growth = predicted_rates
-                # Backtest
                 from models.backtest import RentBacktester
                 backtester = RentBacktester()
                 backtest_result = backtester.run_backtest(
@@ -552,12 +655,10 @@ if submitted:
         results_dict["rent_prediction"] = rent_prediction
         results_dict["backtest"] = backtest_result
 
-        # 4. Pro forma
         progress.progress(35, text="Building financial model (pro forma)...")
         pro_forma = build_pro_forma(deal)
         results_dict["results"] = pro_forma
 
-        # 5. ML valuation (optional)
         ml_valuation = None
         if deal.enable_ml_valuation:
             progress.progress(45, text="Running ML property valuation...")
@@ -571,7 +672,6 @@ if submitted:
                 ml_valuation = {"error": str(e)}
         results_dict["ml_valuation"] = ml_valuation
 
-        # 6. Lease analysis (optional)
         lease_analysis = None
         if deal.lease_pdf_paths:
             progress.progress(55, text="Analyzing lease documents (AI)...")
@@ -590,7 +690,6 @@ if submitted:
                 lease_analysis = {"error": str(e)}
         results_dict["lease_analysis"] = lease_analysis
 
-        # 7. Sensitivity tables
         progress.progress(60, text="Building sensitivity tables...")
         try:
             sensitivity = _build_sensitivity(deal, pro_forma)
@@ -599,7 +698,6 @@ if submitted:
             sensitivity = {"error": str(e)}
         results_dict["sensitivity"] = sensitivity
 
-        # 8. Monte Carlo
         progress.progress(65, text="Running Monte Carlo simulation (1,000 paths)...")
         monte_carlo = None
         try:
@@ -611,13 +709,11 @@ if submitted:
             monte_carlo = {"error": str(e)}
         results_dict["monte_carlo"] = monte_carlo
 
-        # 9. Integrated recommendation
         progress.progress(70, text="Building integrated recommendation...")
         recommendation = _build_recommendation(
             pro_forma, ml_valuation, lease_analysis, rent_prediction, monte_carlo)
         results_dict["recommendation"] = recommendation
 
-        # 10. Waterfall (optional)
         waterfall = None
         if deal.enable_waterfall:
             progress.progress(73, text="Running LP/GP waterfall...")
@@ -639,7 +735,6 @@ if submitted:
                 waterfall = {"error": str(e)}
         results_dict["waterfall"] = waterfall
 
-        # 11. AI memo (optional — needs OpenAI key)
         ai_memo = None
         openai_key = _secret("OPENAI_API_KEY") or os.environ.get("OPENAI_API_KEY", "")
         if openai_key:
@@ -661,7 +756,6 @@ if submitted:
                 ai_memo = {"error": str(e)}
         results_dict["ai_memo"] = ai_memo
 
-        # 12. Scenarios
         progress.progress(82, text="Running Base/Bull/Bear scenarios...")
         try:
             from models.scenarios import run_scenarios
@@ -671,14 +765,12 @@ if submitted:
             scenarios = {"error": str(e)}
         results_dict["scenarios"] = scenarios
 
-        # 13. Unit mix (with HUD FMR annotation)
         unit_mix_out = None
         if deal.unit_mix and not deal.unit_mix.is_empty():
             hud_fmr = market_data.get("hud_fmr", {}) if market_data else {}
             unit_mix_out = deal.unit_mix.with_hud_fmr(hud_fmr)
         results_dict["unit_mix"] = unit_mix_out
 
-        # 14. Generate output files
         job_id = uuid.uuid4().hex[:12]
 
         progress.progress(87, text="Generating Excel report...")
@@ -726,11 +818,12 @@ if submitted:
 
         progress.progress(100, text="Analysis complete!")
 
-        # Store results and navigate
         st.session_state["results"] = results_dict
         st.session_state["chat_history"] = []
         if "saved_deals" not in st.session_state:
             st.session_state["saved_deals"] = {}
+        # Clear demo state after successful run
+        st.session_state.pop("demo", None)
 
         st.success("✅ Analysis complete!")
         st.switch_page("pages/1_Results.py")
