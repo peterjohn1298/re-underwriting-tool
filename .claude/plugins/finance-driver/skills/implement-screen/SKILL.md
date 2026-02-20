@@ -310,6 +310,47 @@ If they choose, **proceed directly** to that work.
 
 ---
 
+## When Stuck: PAL Debug
+
+If implementation is blocked after 2 attempts at the same bug, **stop brute-forcing**.
+
+**Trigger `mcp__pal__debug`** with:
+- `step`: Clear description of the bug and what you've already tried
+- `relevant_files`: The specific file(s) where the issue manifests
+- `hypothesis`: Your current best guess at the root cause
+- `model`: "gemini-2.5-pro"
+- `thinking_mode`: "high"
+
+**Common triggers in this project:**
+- Market data API returns unexpected structure (FRED, HUD, RentCast) → PAL debug identifies which key changed
+- Financial calculation produces NaN or inf → PAL debug traces the zero-division or missing input
+- Claude/Gemini API call fails silently → PAL debug finds the grounding or auth issue
+- Monte Carlo distribution looks wrong → PAL debug checks parameter bounds and random seed handling
+
+After PAL identifies the root cause, implement the fix, then run `pytest tests/` to confirm no regression.
+
+## When Deciding Architecture: PAL ThinkDeep
+
+For implementation decisions with more than 2 valid approaches (e.g., "should this be async or sync?", "should we cache this API response?"):
+
+**Trigger `mcp__pal__thinkdeep`** before writing code:
+- `hypothesis`: The approach you're leaning toward
+- `problem_context`: What the tradeoffs are
+- `focus_areas`: ["architecture", "performance"] or ["security", "correctness"]
+- `model`: "gemini-2.5-pro"
+
+This prevents building the wrong thing. Architecture is cheap to change in planning, expensive in code.
+
+## When Using External APIs: PAL API Lookup
+
+Before adding or modifying any API integration (FRED, RentCast, HUD, Census, Walk Score, FEMA):
+
+**Trigger `mcp__pal__apilookup`** with the API name and what you need.
+
+This project has been burned by undocumented API behaviors before (see `reflect.md`). Verify the actual endpoint shape before writing the client code.
+
+---
+
 ## Proactive Flow
 
 As a Cognition Mate:
@@ -317,6 +358,7 @@ As a Cognition Mate:
 - Show results, gather feedback, iterate
 - Suggest next steps when a section is complete
 - Keep momentum — the visual feedback loop drives progress
+- If blocked for more than 2 attempts: use PAL debug, don't brute-force
 
 ---
 

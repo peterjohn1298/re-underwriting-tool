@@ -113,6 +113,27 @@ If only one section exists, auto-select it. If multiple exist, ask which one to 
 
 **Developer does:** Spot-check facts against authoritative sources. Don't use AI alone to validate AI output.
 
+### 5b. PAL Code Review (Finance-Critical Sections)
+
+For any section involving financial calculations, AI grounding, or external API integrations, run a PAL code review before marking validation complete.
+
+**Trigger `mcp__pal__codereview` with these settings:**
+
+```
+review_type: "full"
+focus_on: "financial formula correctness, edge cases, API error handling, AI grounding safety"
+severity_filter: "high"
+model: "gemini-2.5-pro"
+thinking_mode: "high"
+```
+
+**Pass `relevant_files`** pointing to the specific module being validated (e.g., `models/financial_model.py`, `services/market_research.py`).
+
+**Present findings to developer:**
+"PAL found [N] issues at [severity] level. Here's what needs attention before we mark this section complete: [list issues]"
+
+**Do not mark a section ✅ in `validation.md` until PAL finds no high/critical issues.**
+
 ### 6. Capture Evidence (Screenshots)
 
 After validation passes, capture visual documentation for the export package.

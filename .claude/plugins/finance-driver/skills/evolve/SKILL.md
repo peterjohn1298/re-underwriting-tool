@@ -217,6 +217,26 @@ When copying components:
 - Transform `@/../[project]/build/[section-id]/types` to `../types`
 - Remove DRIVER-specific imports
 
+### 4b. PAL Pre-Commit Check (Before Finalizing Export)
+
+Before creating the zip, run a PAL pre-commit validation to confirm the codebase is in a clean, deployable state.
+
+**Trigger `mcp__pal__precommit`** with:
+```
+path: [absolute path to project root]
+focus_on: "broken tests, API key leaks, flake8 E9/F63/F7/F82 errors, missing requirements"
+precommit_type: "external"
+model: "gemini-2.5-pro"
+```
+
+**For this project specifically**, also verify:
+- [ ] `pytest tests/` passes (51 tests)
+- [ ] No API keys hardcoded in any file (search for `sk-`, `Bearer `, raw key strings)
+- [ ] `requirements.txt` includes all imports used in the codebase
+- [ ] `validation.md` has a passing entry for every section in `roadmap.md`
+
+Only proceed to the zip step after PAL finds no critical or high issues.
+
 ### 5. Create Zip File
 
 After generating all files:
