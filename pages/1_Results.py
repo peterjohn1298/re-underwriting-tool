@@ -71,6 +71,7 @@ waterfall  = R.get("waterfall") or {}
 ai_memo    = R.get("ai_memo") or {}
 unit_mix   = R.get("unit_mix") or {}
 sensitivity = R.get("sensitivity") or {}
+regime     = R.get("regime") or {}
 deal_obj   = R.get("deal")
 excel_path = R.get("excel_path")
 word_path  = R.get("word_path")
@@ -208,6 +209,25 @@ with tabs[0]:
     score = rec.get("score", 0)
     st.markdown(f"<div style='text-align:center;color:#8B949E;margin-bottom:20px'>"
                 f"Signal Score: {score:+d}</div>", unsafe_allow_html=True)
+
+    # Housing Market Regime
+    if regime and not regime.get("error") and regime.get("regime") not in (None, "UNKNOWN"):
+        r_label  = regime.get("label", regime.get("regime", "UNKNOWN"))
+        r_color  = regime.get("color", "#8B949E")
+        r_desc   = regime.get("description", "")
+        r_impl   = regime.get("underwriting_implication", "")
+        r_score  = regime.get("composite_score", 0)
+        st.markdown(
+            f"<div style='text-align:center;margin:8px 0 16px'>"
+            f"<span style='background:{r_color}22;border:1px solid {r_color};"
+            f"border-radius:12px;padding:6px 20px;color:{r_color};"
+            f"font-weight:700;font-size:0.95em;letter-spacing:1px'>"
+            f"🏘️ HOUSING REGIME: {r_label} (score {r_score:+d})</span></div>",
+            unsafe_allow_html=True,
+        )
+        with st.expander("Regime Analysis & Underwriting Implications"):
+            st.markdown(r_desc)
+            st.info(f"**Underwriting implication:** {r_impl}")
 
     # Scorecard chips
     chip_cols = st.columns(5)
@@ -390,6 +410,63 @@ with tabs[3]:
     fz = market.get("flood_zone", {}) if market else {}
     rc_stats = rc.get("market_stats", {}) if rc else {}
     rc_avm = rc.get("rent_estimate", {}) if rc else {}
+
+    # Housing Market Regime
+    if regime and not regime.get("error") and regime.get("regime") not in (None, "UNKNOWN"):
+        r_label = regime.get("label", "UNKNOWN")
+        r_color = regime.get("color", "#8B949E")
+        r_score = regime.get("composite_score", 0)
+        r_signal = regime.get("signal", "NEUTRAL")
+        ind = regime.get("indicator_scores", {})
+        raw = regime.get("raw", {})
+
+        st.markdown(
+            f"<div style='background:{r_color}18;border:1px solid {r_color};"
+            f"border-radius:10px;padding:14px 20px;margin-bottom:16px'>"
+            f"<span style='color:{r_color};font-size:1.2em;font-weight:800'>"
+            f"🏘️ Housing Market Regime: {r_label}</span>"
+            f"<span style='color:#8B949E;font-size:0.85em;margin-left:12px'>"
+            f"Composite Score: {r_score:+d} / 5</span><br>"
+            f"<span style='color:#E6EDF3;font-size:0.9em'>{regime.get('description','')}</span>"
+            f"</div>",
+            unsafe_allow_html=True,
+        )
+
+        def _regime_indicator(label, score):
+            if score > 0:   icon, col = "▲", "#3fb950"
+            elif score < 0: icon, col = "▼", "#f85149"
+            else:           icon, col = "—", "#8B949E"
+            return f"<span style='color:{col}'>{icon} {label}</span>"
+
+        ind_cols = st.columns(5)
+        ind_labels = {
+            "housing_starts": "Housing Starts",
+            "vacancy_rate":   "Rental Vacancy",
+            "shelter_cpi":    "Shelter CPI",
+            "yield_curve":    "Yield Curve",
+            "unemployment":   "Unemployment",
+        }
+        for col, (key, label) in zip(ind_cols, ind_labels.items()):
+            col.markdown(
+                f'<div class="metric-chip">'
+                f'<div class="chip-label">{label}</div>'
+                f'<div class="chip-value">'
+                f'{_regime_indicator(["Neg","Neut","Pos"][ind.get(key,0)+1], ind.get(key,0))}'
+                f'</div></div>',
+                unsafe_allow_html=True,
+            )
+
+        if regime.get("underwriting_implication"):
+            st.info(f"**Implication for this deal:** {regime['underwriting_implication']}")
+
+        # Raw indicator values
+        raw_col1, raw_col2, raw_col3, raw_col4 = st.columns(4)
+        raw_col1.metric("Housing Starts", f"{raw.get('housing_starts_current', '—'):,.0f}k" if raw.get('housing_starts_current') else "—")
+        raw_col2.metric("Rental Vacancy", f"{raw.get('vacancy_rate', '—'):.1f}%" if raw.get('vacancy_rate') else "—")
+        raw_col3.metric("10-Yr Treasury", f"{raw.get('treasury_10yr', '—'):.2f}%" if raw.get('treasury_10yr') else "—")
+        raw_col4.metric("2-Yr Treasury",  f"{raw.get('treasury_2yr', '—'):.2f}%" if raw.get('treasury_2yr') else "—")
+
+        st.markdown("---")
 
     # Demographics
     if demo:

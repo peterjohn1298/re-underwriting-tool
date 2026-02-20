@@ -699,6 +699,15 @@ if submitted:
                 lease_analysis = {"error": str(e)}
         results_dict["lease_analysis"] = lease_analysis
 
+        progress.progress(58, text="Detecting housing market regime (FRED)...")
+        try:
+            from models.regime_detector import HousingRegimeDetector
+            regime = HousingRegimeDetector().detect(market_data)
+        except Exception as e:
+            logger.error(f"Regime detection failed: {e}")
+            regime = {"error": str(e)}
+        results_dict["regime"] = regime
+
         progress.progress(60, text="Building sensitivity tables...")
         try:
             sensitivity = _build_sensitivity(deal, pro_forma)
