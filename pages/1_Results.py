@@ -83,6 +83,9 @@ pf_rows   = pro_forma.get("pro_forma", [])
 inputs_d  = pro_forma.get("inputs", {})
 derived_d = inputs_d.get("derived", {})
 
+# Market sub-dicts extracted once and shared across all tabs
+crime = market.get("crime", {}) or {}
+
 def _pct(v):
     return f"{v*100:.1f}%" if v is not None else "—"
 
@@ -281,6 +284,35 @@ with tabs[0]:
             unsafe_allow_html=True,
         )
 
+    # Crime risk snapshot
+    st.markdown("---")
+    if crime.get("available"):
+        risk      = crime.get("risk_level", "Unknown")
+        vs_nat    = crime.get("vs_national_pct", 0)
+        violent   = crime.get("violent_per_100k", "—")
+        color_map = {"LOW": "#3fb950", "MODERATE": "#e3b341",
+                     "HIGH": "#f85149", "VERY HIGH": "#f85149"}
+        c_color   = color_map.get(risk, "#8B949E")
+        cr1, cr2, cr3 = st.columns(3)
+        cr1.markdown(
+            f"<div style='color:{c_color};font-weight:700;font-size:1.1em'>"
+            f"🔒 Crime Risk: {risk}</div>"
+            f"<div style='color:#8B949E;font-size:0.85em'>"
+            f"{vs_nat:+.1f}% vs national average</div>",
+            unsafe_allow_html=True,
+        )
+        cr2.metric("Violent Crimes / 100k", f"{violent:,.0f}" if isinstance(violent, float) else violent)
+        cr3.metric("National Average", f"{crime.get('national_violent_per_100k', 373):.0f} / 100k")
+        st.caption(
+            f"Source: {crime.get('source', 'FBI UCR')} — "
+            f"{crime.get('note', 'Relative rankings are stable over time.')}"
+        )
+    else:
+        st.caption(
+            f"🔒 Crime data: {crime.get('note', 'Not available for this city.')} "
+            f"(Coverage: 68 major US cities via FBI UCR)"
+        )
+
     # Unit mix summary (if available)
     if unit_mix and unit_mix.get("units"):
         st.markdown("---")
@@ -403,7 +435,6 @@ with tabs[3]:
     st.subheader("Market Intelligence")
     demo = market.get("demographics", {}).get("structured", {}) if market else {}
     caps = market.get("cap_rates", {}) if market else {}
-    crime = market.get("crime", {}) if market else {}
     ws = market.get("walkscore", {}) if market else {}
     hud = market.get("hud_fmr", {}) if market else {}
     rc = market.get("rentcast", {}) if market else {}
