@@ -129,6 +129,43 @@ class UnitMix:
         return result
 
 
+def parse_unit_mix_from_dict(data: dict) -> UnitMix:
+    """Parse unit mix inputs from a plain dict (for Streamlit forms).
+
+    Expects keys:
+        um_count_Studio, um_rent_Studio, um_market_rent_Studio
+        um_count_1BR,    um_rent_1BR,    um_market_rent_1BR
+        um_count_2BR,    um_rent_2BR,    um_market_rent_2BR
+        um_count_3BR,    um_rent_3BR,    um_market_rent_3BR
+    """
+    def _i(v):
+        try:
+            return int(v) if v else 0
+        except (ValueError, TypeError):
+            return 0
+
+    def _f(v):
+        try:
+            return float(v) if v else 0.0
+        except (ValueError, TypeError):
+            return 0.0
+
+    units = []
+    for t in UNIT_TYPES:
+        count = _i(data.get(f"um_count_{t}"))
+        rent = _f(data.get(f"um_rent_{t}"))
+        market = _f(data.get(f"um_market_rent_{t}"))
+        if count > 0 and rent > 0:
+            units.append(UnitType(
+                type_name=t,
+                count=count,
+                in_place_rent=rent,
+                market_rent=market,
+            ))
+
+    return UnitMix(units=units)
+
+
 def parse_unit_mix_from_form(form) -> UnitMix:
     """Parse unit mix inputs from Flask form data.
 
