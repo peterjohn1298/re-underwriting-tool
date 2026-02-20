@@ -114,6 +114,100 @@ DEMO_VALUES = {
     "override_other_expenses":    0.0,
 }
 
+# ── Demo values #2 (Phoenix, AZ — 80-unit Value-Add Class C) ─────────────────
+DEMO_VALUES_2 = {
+    "property_type":        "Multifamily - Class C",
+    "address":              "4500 N 12th St, Phoenix, AZ 85014",
+    "year_built":           1987,
+    "purchase_price":       7_200_000.0,
+    "current_noi":          0.0,
+    "total_units":          80,
+    "total_sf":             56_000.0,
+    "in_place_rent":        850.0,
+    "market_rent":          1_200.0,
+    "occupancy":            78,
+    "hold_period_years":    5,
+    "deferred_maintenance": 600_000.0,
+    "planned_capex":        2_000_000.0,
+    "capex_description":    "Full unit gut-renovations, new roofs, HVAC replacement, parking reseal",
+    # Unit mix
+    "um_count_Studio": 10,  "um_rent_Studio": 750.0,  "um_market_rent_Studio": 1_050.0,
+    "um_count_1BR":    40,  "um_rent_1BR":    850.0,  "um_market_rent_1BR":   1_200.0,
+    "um_count_2BR":    25,  "um_rent_2BR":    950.0,  "um_market_rent_2BR":   1_350.0,
+    "um_count_3BR":     5,  "um_rent_3BR":  1_100.0,  "um_market_rent_3BR":   1_550.0,
+    # Financing / overrides
+    "ltv":                        60,
+    "interest_rate":              7.25,
+    "amortization_years":         30,
+    "loan_term_years":            10,
+    "io_period_years":            2,
+    "closing_costs_pct":          3.5,
+    "sale_costs_pct":             3.0,
+    "replacement_reserves_per_unit": 300.0,
+    "revenue_growth_rate":        4.5,
+    "expense_growth_rate":        3.5,
+    "management_fee_pct":         4.0,
+    "exit_cap_rate_spread":       0,
+    "tax_rate":                   25.0,
+    "land_value_pct":             15.0,
+    "lp_equity_pct":              90.0,
+    "preferred_return":           8.0,
+    "promote_pct":                25.0,
+    "override_property_tax":      0.0,
+    "override_insurance":         0.0,
+    "override_utilities":         0.0,
+    "override_repairs":           0.0,
+    "override_general_admin":     0.0,
+    "override_other_expenses":    0.0,
+}
+
+# ── Demo values #3 (Miami, FL — 150-unit Class A Core) ───────────────────────
+DEMO_VALUES_3 = {
+    "property_type":        "Multifamily - Class A",
+    "address":              "1800 Brickell Ave, Miami, FL 33129",
+    "year_built":           2018,
+    "purchase_price":       45_000_000.0,
+    "current_noi":          0.0,
+    "total_units":          150,
+    "total_sf":             165_000.0,
+    "in_place_rent":        2_800.0,
+    "market_rent":          2_950.0,
+    "occupancy":            96,
+    "hold_period_years":    10,
+    "deferred_maintenance": 0.0,
+    "planned_capex":        150_000.0,
+    "capex_description":    "Common area refresh and smart-home upgrades",
+    # Unit mix
+    "um_count_Studio": 20,  "um_rent_Studio": 2_200.0, "um_market_rent_Studio": 2_400.0,
+    "um_count_1BR":    70,  "um_rent_1BR":   2_800.0, "um_market_rent_1BR":   2_950.0,
+    "um_count_2BR":    50,  "um_rent_2BR":   3_400.0, "um_market_rent_2BR":   3_600.0,
+    "um_count_3BR":    10,  "um_rent_3BR":   4_200.0, "um_market_rent_3BR":   4_400.0,
+    # Financing / overrides
+    "ltv":                        55,
+    "interest_rate":              6.25,
+    "amortization_years":         30,
+    "loan_term_years":            10,
+    "io_period_years":            0,
+    "closing_costs_pct":          2.5,
+    "sale_costs_pct":             2.5,
+    "replacement_reserves_per_unit": 200.0,
+    "revenue_growth_rate":        3.5,
+    "expense_growth_rate":        3.0,
+    "management_fee_pct":         3.0,
+    "exit_cap_rate_spread":       25,
+    "tax_rate":                   25.0,
+    "land_value_pct":             30.0,
+    "lp_equity_pct":              90.0,
+    "preferred_return":           7.0,
+    "promote_pct":                20.0,
+    "override_property_tax":      0.0,
+    "override_insurance":         0.0,
+    "override_utilities":         0.0,
+    "override_repairs":           0.0,
+    "override_general_admin":     0.0,
+    "override_other_expenses":    0.0,
+}
+
 PROPERTY_TYPES = [
     "Multifamily - Class A",
     "Multifamily - Class B",
@@ -285,25 +379,43 @@ def _build_recommendation(pro_forma: dict, ml_valuation=None,
 st.title("🏢 RE Underwriting Intelligence Platform")
 st.caption("Institutional-Grade Multifamily Analysis • Powered by AI & ML")
 
-# ── Demo button (outside form so it can trigger rerun) ────────────────────────
-col_hdr, col_demo = st.columns([5, 1])
-with col_demo:
-    if st.button("📋 Load Demo Deal", use_container_width=True,
-                 help="Pre-fill with a sample Austin, TX 100-unit Class B deal"):
-        st.session_state["demo"] = DEMO_VALUES.copy()
-        # Unit mix widgets have explicit keys — must set session_state directly
-        # so Streamlit shows the demo values (value= param is ignored for keyed widgets)
-        for _ut in ["Studio", "1BR", "2BR", "3BR"]:
-            st.session_state[f"um_count_{_ut}"]       = DEMO_VALUES[f"um_count_{_ut}"]
-            st.session_state[f"um_rent_{_ut}"]         = DEMO_VALUES[f"um_rent_{_ut}"]
-            st.session_state[f"um_market_rent_{_ut}"]  = DEMO_VALUES[f"um_market_rent_{_ut}"]
-        # Enable ML + rent prediction for demo
-        st.session_state["ck_ml_valuation"]    = True
-        st.session_state["ck_rent_prediction"] = True
+# ── Demo buttons (outside form so they can trigger rerun) ─────────────────────
+col_hdr, col_d1, col_d2, col_d3 = st.columns([3, 1, 1, 1])
+
+def _load_demo(vals: dict) -> None:
+    """Helper: push a demo dict into session state and rerun."""
+    st.session_state["demo"] = vals.copy()
+    for _ut in ["Studio", "1BR", "2BR", "3BR"]:
+        st.session_state[f"um_count_{_ut}"]       = vals[f"um_count_{_ut}"]
+        st.session_state[f"um_rent_{_ut}"]         = vals[f"um_rent_{_ut}"]
+        st.session_state[f"um_market_rent_{_ut}"]  = vals[f"um_market_rent_{_ut}"]
+    st.session_state["ck_ml_valuation"]    = True
+    st.session_state["ck_rent_prediction"] = True
+
+with col_d1:
+    if st.button("📋 Demo 1 — Austin TX", use_container_width=True,
+                 help="100-unit Class B • $12.5M • Stabilised value-add"):
+        _load_demo(DEMO_VALUES)
         st.rerun()
 
-if st.session_state.get("demo"):
-    st.info("✅ Demo deal loaded — **2100 S Lamar Blvd, Austin, TX** (100 units, $12.5M). "
+with col_d2:
+    if st.button("🔨 Demo 2 — Phoenix AZ", use_container_width=True,
+                 help="80-unit Class C • $7.2M • Distressed value-add with heavy capex"):
+        _load_demo(DEMO_VALUES_2)
+        st.rerun()
+
+with col_d3:
+    if st.button("🏙️ Demo 3 — Miami FL", use_container_width=True,
+                 help="150-unit Class A • $45M • Core stabilised luxury"):
+        _load_demo(DEMO_VALUES_3)
+        st.rerun()
+
+_demo_loaded = st.session_state.get("demo", {})
+if _demo_loaded:
+    _addr = _demo_loaded.get("address", "demo deal")
+    _units = _demo_loaded.get("total_units", "?")
+    _price = _demo_loaded.get("purchase_price", 0)
+    st.info(f"✅ Demo loaded — **{_addr}** ({_units} units, ${_price:,.0f}). "
             "Click **Run Full Analysis** to proceed.")
 
 st.markdown("---")
