@@ -1,0 +1,13 @@
+{
+  "name": "finance-driver",
+  "description": "DRIVER methodology for finance and quantitative tool development - Define, Represent, Implement, Validate, Evolve, Reflect",
+  "version": "1.0.0",
+  "author": {
+    "name": "Cinder Zhang",
+    "email": "cinderzhang@gmail.com"
+  },
+  "homepage": "https://github.com/CinderZhang/driver-plugin",
+  "repository": "https://github.com/CinderZhang/driver-plugin",
+  "license": "MIT",
+  "keywords": ["driver", "product-development", "quant", "finance", "cognition-mate", "workflow"]
+}

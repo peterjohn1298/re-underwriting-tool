@@ -1,0 +1,21 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": ".claude/plugins/finance-driver/hooks/session-start.sh",
+            "platforms": ["darwin", "linux"]
+          },
+          {
+            "type": "command",
+            "command": "powershell -ExecutionPolicy Bypass -File \".claude/plugins/finance-driver/hooks/session-start.ps1\"",
+            "platforms": ["win32"]
+          }
+        ]
+      }
+    ]
+  }
+}

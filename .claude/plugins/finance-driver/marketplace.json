@@ -1,0 +1,20 @@
+{
+  "name": "driver",
+  "description": "DRIVER methodology for AI-augmented professional work — marketplace for domain-specific DRIVER plugins",
+  "owner": {
+    "name": "Cinder Zhang",
+    "email": "cinderzhang@gmail.com"
+  },
+  "plugins": [
+    {
+      "name": "finance-driver",
+      "description": "DRIVER methodology for finance and quantitative tool development",
+      "version": "1.0.0",
+      "source": "./",
+      "author": {
+        "name": "Cinder Zhang",
+        "email": "cinderzhang@gmail.com"
+      }
+    }
+  ]
+}

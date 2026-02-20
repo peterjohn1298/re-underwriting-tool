@@ -1,0 +1,15 @@
+{
+  "project_dir": "re-underwriting-tool-clone",
+  "project_name": "RE Underwriting Intelligence Platform",
+  "methodology": "DRIVER",
+  "plugin": "finance-driver",
+  "stages_completed": [],
+  "current_stage": null,
+  "tech_stack": {
+    "ui": "Flask + Jinja2",
+    "backend": "Python 3.11",
+    "ml": ["scikit-learn", "numpy", "pandas"],
+    "ai": ["anthropic", "google-generativeai"],
+    "data": ["FRED", "Census", "BLS", "Zillow", "RentCast", "HUD", "FBI UCR"]
+  }
+}

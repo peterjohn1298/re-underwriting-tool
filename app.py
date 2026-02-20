@@ -95,8 +95,15 @@ def _run_analysis(job_id: str, deal: DealInputs):
         jobs[job_id]["status"] = "researching"
         logger.info(f"[{job_id}] Fetching market data via FRED/Census/BLS...")
 
+        # Estimate avg bedrooms and sq_ft for RentCast AVM
+        avg_sq_ft = int(deal.total_sf / deal.total_units) if deal.total_units > 0 and deal.total_sf > 0 else None
+
         market_data = run_full_research(
             derived.asset_type, derived.city, derived.state,
+            address=deal.address,
+            zip_code=derived.zip_code,
+            avg_bedrooms=2,
+            avg_sq_ft=avg_sq_ft,
         )
 
         # --- Rent Prediction BEFORE pro forma (Fix #1) ---
@@ -517,6 +524,7 @@ def results(job_id):
     return render_template("results.html",
                            results=job["results"],
                            job_id=job_id,
+                           market_data=job.get("market_data"),
                            ml_valuation=job.get("ml_valuation"),
                            lease_analysis=job.get("lease_analysis"),
                            rent_prediction=job.get("rent_prediction"),

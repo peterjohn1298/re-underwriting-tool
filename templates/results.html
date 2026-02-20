@@ -248,6 +248,326 @@
         </div>
         {% endif %}
 
+        <!-- ========== RENTCAST MARKET DATA CARD ========== -->
+        {% set rc = market_data.get('rentcast', {}) if market_data else {} %}
+        {% if rc and rc.get('available') %}
+        {% set rc_stats = rc.get('market_stats', {}) %}
+        {% set rc_avm = rc.get('rent_estimate', {}) %}
+        {% set rc_comps = rc.get('rental_comps', {}) %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-house-check"></i> RentCast — Live Rental Market Data
+                    <span class="badge bg-success ms-2">Real Data</span>
+                </h6>
+                {% if rc_stats.get('zip_code') %}
+                <small class="text-muted">Zip: {{ rc_stats.zip_code }}</small>
+                {% endif %}
+            </div>
+            <div class="card-body">
+
+                <!-- Market Stats Row -->
+                {% if rc_stats.get('available') %}
+                <h6 class="text-muted mb-2">Market Statistics (Zip Code Level)</h6>
+                <div class="row g-3 mb-3">
+                    {% if rc_stats.average_rent %}
+                    <div class="col-md-2 col-4">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Avg Market Rent</small>
+                            <strong class="text-gold">${{ "{:,.0f}".format(rc_stats.average_rent) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rc_stats.median_rent %}
+                    <div class="col-md-2 col-4">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Median Rent</small>
+                            <strong>${{ "{:,.0f}".format(rc_stats.median_rent) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rc_stats.min_rent and rc_stats.max_rent %}
+                    <div class="col-md-2 col-4">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Rent Range</small>
+                            <strong>${{ "{:,.0f}".format(rc_stats.min_rent) }} – ${{ "{:,.0f}".format(rc_stats.max_rent) }}</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rc_stats.avg_days_on_market %}
+                    <div class="col-md-2 col-4">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Avg Days on Mkt</small>
+                            <strong>{{ rc_stats.avg_days_on_market }} days</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rc_stats.total_listings %}
+                    <div class="col-md-2 col-4">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Active Listings</small>
+                            <strong>{{ rc_stats.total_listings }}</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if rc_stats.annualized_rent_trend_pct is not none %}
+                    <div class="col-md-2 col-4">
+                        <div class="text-center">
+                            <small class="text-muted d-block">Annualized Trend</small>
+                            <strong class="{% if rc_stats.annualized_rent_trend_pct >= 0 %}text-success{% else %}text-danger{% endif %}">
+                                {{ "%+.1f"|format(rc_stats.annualized_rent_trend_pct) }}%/yr
+                            </strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+                {% endif %}
+
+                <!-- AVM Rent Estimate -->
+                {% if rc_avm and rc_avm.get('available') and rc_avm.get('estimated_rent') %}
+                <h6 class="text-muted mb-2 mt-3">AVM Rent Estimate — Subject Property</h6>
+                <div class="alert alert-info py-2 mb-3">
+                    <div class="d-flex align-items-center">
+                        <i class="bi bi-calculator me-2 fs-5"></i>
+                        <div>
+                            <strong>${{ "{:,.0f}".format(rc_avm.estimated_rent) }}/mo</strong> estimated market rent
+                            {% if rc_avm.rent_range_low and rc_avm.rent_range_high %}
+                            &nbsp;<span class="text-muted">(range: ${{ "{:,.0f}".format(rc_avm.rent_range_low) }} – ${{ "{:,.0f}".format(rc_avm.rent_range_high) }})</span>
+                            {% endif %}
+                            &nbsp;&mdash;&nbsp;
+                            {% set in_place = results.inputs.deal.in_place_rent %}
+                            {% if in_place and in_place > 0 %}
+                                {% set diff_pct = ((in_place - rc_avm.estimated_rent) / rc_avm.estimated_rent * 100) %}
+                                In-place rent is
+                                <span class="{% if diff_pct < -10 %}text-danger{% elif diff_pct > 10 %}text-success{% else %}text-muted{% endif %}">
+                                    {{ "%+.1f"|format(diff_pct) }}%
+                                </span> vs. AVM estimate
+                            {% endif %}
+                        </div>
+                    </div>
+                </div>
+                {% endif %}
+
+                <!-- Real Rental Comps Table -->
+                {% if rc_comps and rc_comps.get('available') and rc_comps.get('listings') %}
+                <h6 class="text-muted mb-2 mt-3">
+                    Real Rental Comps
+                    <span class="badge bg-success ms-1">{{ rc_comps.count }} listings</span>
+                    <small class="text-muted ms-2">within {{ rc_comps.radius_miles }} mi — Source: RentCast</small>
+                </h6>
+                <div class="table-responsive">
+                    <table class="table table-dark table-sm table-hover">
+                        <thead>
+                            <tr>
+                                <th>Address</th>
+                                <th class="text-end">Rent/mo</th>
+                                <th class="text-center">Beds</th>
+                                <th class="text-center">Baths</th>
+                                <th class="text-end">Sq Ft</th>
+                                <th class="text-end">$/Sq Ft</th>
+                                <th class="text-center">Days on Mkt</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for comp in rc_comps.listings %}
+                            <tr>
+                                <td><small>{{ comp.address or '—' }}</small></td>
+                                <td class="text-end"><strong>{% if comp.rent %}${{ "{:,.0f}".format(comp.rent) }}{% else %}—{% endif %}</strong></td>
+                                <td class="text-center">{{ comp.bedrooms or '—' }}</td>
+                                <td class="text-center">{{ comp.bathrooms or '—' }}</td>
+                                <td class="text-end">{{ "{:,.0f}".format(comp.sq_ft) if comp.sq_ft else '—' }}</td>
+                                <td class="text-end">
+                                    {% if comp.rent and comp.sq_ft and comp.sq_ft > 0 %}
+                                    ${{ "%.2f"|format(comp.rent / comp.sq_ft) }}
+                                    {% else %}—{% endif %}
+                                </td>
+                                <td class="text-center">{{ comp.days_on_market or '—' }}</td>
+                            </tr>
+                            {% endfor %}
+                            {% if rc_comps.average_rent %}
+                            <tr class="table-active fw-bold">
+                                <td>Average</td>
+                                <td class="text-end text-gold">${{ "{:,.0f}".format(rc_comps.average_rent) }}</td>
+                                <td colspan="5"></td>
+                            </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
+                </div>
+                {% endif %}
+
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ========== HUD FAIR MARKET RENTS CARD ========== -->
+        {% set fmr = market_data.get('hud_fmr', {}) if market_data else {} %}
+        {% if fmr and fmr.get('available') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-building-check"></i> HUD Fair Market Rents
+                    <span class="badge bg-info ms-2">{{ fmr.year }}</span>
+                </h6>
+                <small class="text-muted">{{ fmr.metro_name }}</small>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-3">{{ fmr.note }}</p>
+
+                <!-- FMR by Bedroom Count -->
+                {% set fmr_br = fmr.fmr_by_bedroom %}
+                <div class="row g-3 mb-3">
+                    {% if fmr_br.efficiency %}
+                    <div class="col-md col-4">
+                        <div class="text-center {% if fmr.matched_bedroom_key == 'efficiency' %}border border-info rounded p-1{% endif %}">
+                            <small class="text-muted d-block">Studio</small>
+                            <strong {% if fmr.matched_bedroom_key == 'efficiency' %}class="text-info"{% endif %}>${{ "{:,.0f}".format(fmr_br.efficiency) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if fmr_br.one_br %}
+                    <div class="col-md col-4">
+                        <div class="text-center {% if fmr.matched_bedroom_key == 'one_br' %}border border-info rounded p-1{% endif %}">
+                            <small class="text-muted d-block">1 BR</small>
+                            <strong {% if fmr.matched_bedroom_key == 'one_br' %}class="text-info"{% endif %}>${{ "{:,.0f}".format(fmr_br.one_br) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if fmr_br.two_br %}
+                    <div class="col-md col-4">
+                        <div class="text-center {% if fmr.matched_bedroom_key == 'two_br' %}border border-info rounded p-1{% endif %}">
+                            <small class="text-muted d-block">2 BR</small>
+                            <strong {% if fmr.matched_bedroom_key == 'two_br' %}class="text-info"{% endif %}>${{ "{:,.0f}".format(fmr_br.two_br) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if fmr_br.three_br %}
+                    <div class="col-md col-4">
+                        <div class="text-center {% if fmr.matched_bedroom_key == 'three_br' %}border border-info rounded p-1{% endif %}">
+                            <small class="text-muted d-block">3 BR</small>
+                            <strong {% if fmr.matched_bedroom_key == 'three_br' %}class="text-info"{% endif %}>${{ "{:,.0f}".format(fmr_br.three_br) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                    {% if fmr_br.four_br %}
+                    <div class="col-md col-4">
+                        <div class="text-center {% if fmr.matched_bedroom_key == 'four_br' %}border border-info rounded p-1{% endif %}">
+                            <small class="text-muted d-block">4 BR</small>
+                            <strong {% if fmr.matched_bedroom_key == 'four_br' %}class="text-info"{% endif %}>${{ "{:,.0f}".format(fmr_br.four_br) }}/mo</strong>
+                        </div>
+                    </div>
+                    {% endif %}
+                </div>
+
+                <!-- FMR vs In-Place Rent Comparison -->
+                {% if fmr.matched_fmr %}
+                {% set in_place = results.inputs.deal.in_place_rent %}
+                {% if in_place and in_place > 0 %}
+                {% set fmr_diff = ((in_place - fmr.matched_fmr) / fmr.matched_fmr * 100) %}
+                <div class="alert {% if fmr_diff > 20 %}alert-warning{% elif fmr_diff < -10 %}alert-info{% else %}alert-secondary{% endif %} py-2">
+                    <i class="bi bi-info-circle me-2"></i>
+                    In-place rent (<strong>${{ "{:,.0f}".format(in_place) }}/mo</strong>) is
+                    <strong class="{% if fmr_diff > 20 %}text-warning{% elif fmr_diff < 0 %}text-info{% else %}text-success{% endif %}">
+                        {{ "%+.1f"|format(fmr_diff) }}%
+                    </strong>
+                    vs. HUD FMR for {{ fmr.avg_bedrooms_requested }}BR
+                    (${{ "{:,.0f}".format(fmr.matched_fmr) }}/mo).
+                    {% if fmr_diff > 20 %}
+                    <span class="text-warning">Above-FMR rents may indicate market-rate positioning or overpricing relative to subsidized benchmarks.</span>
+                    {% elif fmr_diff < -10 %}
+                    <span class="text-info">Below-FMR rents suggest value-add upside — rents may be below market.</span>
+                    {% else %}
+                    Rents are in line with HUD fair market benchmarks.
+                    {% endif %}
+                </div>
+                {% endif %}
+                {% endif %}
+
+            </div>
+        </div>
+        {% elif market_data and not fmr.get('available') and fmr.get('note') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-building-check"></i> HUD Fair Market Rents
+                    <span class="badge bg-secondary ms-2">Not Available</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <p class="text-muted small mb-0"><i class="bi bi-exclamation-circle me-1"></i>{{ fmr.note }}</p>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ========== WALK SCORE CARD ========== -->
+        {% set ws = market_data.get('walkscore', {}) if market_data else {} %}
+        {% if ws and ws.get('available') %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-signpost-split"></i> Location Scores
+                    <span class="badge bg-success ms-2">Walk Score</span>
+                </h6>
+                <small class="text-muted">{{ ws.address }}</small>
+            </div>
+            <div class="card-body">
+                <div class="row g-4 mb-3">
+                    <!-- Walk Score -->
+                    {% if ws.walk_score is not none %}
+                    <div class="col-md-4 text-center">
+                        <div class="mb-1">
+                            <span class="display-5 fw-bold
+                                {% if ws.walk_score >= 70 %}text-success
+                                {% elif ws.walk_score >= 50 %}text-warning
+                                {% else %}text-danger{% endif %}">
+                                {{ ws.walk_score }}
+                            </span>
+                            <span class="text-muted">/100</span>
+                        </div>
+                        <div class="fw-semibold">Walk Score</div>
+                        <small class="text-muted">{{ ws.walk_label }}</small>
+                    </div>
+                    {% endif %}
+                    <!-- Transit Score -->
+                    {% if ws.transit_score is not none %}
+                    <div class="col-md-4 text-center">
+                        <div class="mb-1">
+                            <span class="display-5 fw-bold
+                                {% if ws.transit_score >= 70 %}text-success
+                                {% elif ws.transit_score >= 25 %}text-warning
+                                {% else %}text-muted{% endif %}">
+                                {{ ws.transit_score }}
+                            </span>
+                            <span class="text-muted">/100</span>
+                        </div>
+                        <div class="fw-semibold">Transit Score</div>
+                        <small class="text-muted">{{ ws.transit_label }}</small>
+                    </div>
+                    {% endif %}
+                    <!-- Bike Score -->
+                    {% if ws.bike_score is not none %}
+                    <div class="col-md-4 text-center">
+                        <div class="mb-1">
+                            <span class="display-5 fw-bold
+                                {% if ws.bike_score >= 70 %}text-success
+                                {% elif ws.bike_score >= 50 %}text-warning
+                                {% else %}text-muted{% endif %}">
+                                {{ ws.bike_score }}
+                            </span>
+                            <span class="text-muted">/100</span>
+                        </div>
+                        <div class="fw-semibold">Bike Score</div>
+                        <small class="text-muted">{{ ws.bike_label }}</small>
+                    </div>
+                    {% endif %}
+                </div>
+                {% if ws.underwriting_note %}
+                <div class="alert alert-secondary py-2 mb-0">
+                    <i class="bi bi-lightbulb me-2"></i>
+                    <small>{{ ws.underwriting_note }}</small>
+                </div>
+                {% endif %}
+                <small class="text-muted d-block mt-2">Source: Walk Score API &mdash; <a href="{{ ws.walkscore_url }}" target="_blank" class="text-muted">View on WalkScore.com</a></small>
+            </div>
+        </div>
+        {% endif %}
+
         <!-- ========== LEASE ANALYSIS CARD ========== -->
         {% if lease_analysis and not lease_analysis.get('error') %}
         <div class="card bg-dark-card mb-4">

@@ -6,6 +6,10 @@ from services.api_clients.fred_client import FREDClient
 from services.api_clients.census_client import CensusClient
 from services.api_clients.bls_client import BLSClient
 from services.api_clients.zillow_client import ZillowClient
+from services.api_clients.rentcast_client import RentCastClient
+from services.api_clients.crime_client import CrimeClient
+from services.api_clients.hud_client import HUDClient
+from services.api_clients.walkscore_client import WalkScoreClient
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +33,10 @@ fred = FREDClient()
 census = CensusClient()
 bls = BLSClient()
 zillow = ZillowClient()
+rentcast = RentCastClient()
+crime = CrimeClient()
+hud = HUDClient()
+walkscore = WalkScoreClient()
 
 
 def search_comps(property_type: str, city: str, state: str) -> dict:
@@ -269,14 +277,60 @@ def _fetch_macro_signals() -> dict:
     }
 
 
-def run_full_research(property_type: str, city: str, state: str) -> dict:
+def search_rentcast_data(property_type: str, address: str, zip_code: str,
+                         avg_bedrooms: int = 2, avg_sq_ft: int = None) -> dict:
+    """Fetch real rental market data from RentCast API.
+
+    Returns real rent estimates, market stats by zip, and live rental comps.
+    Falls back gracefully if key not configured or no data available.
+    """
+    if not address and not zip_code:
+        return {"available": False, "note": "No address or zip code provided"}
+
+    cache_key = f"rentcast_{address}_{zip_code}_{property_type}"
+    if cache_key in _cache:
+        return _cache[cache_key]
+
+    try:
+        data = rentcast.get_all_rental_data(
+            address=address,
+            zip_code=zip_code,
+            property_type=property_type,
+            avg_bedrooms=avg_bedrooms,
+            avg_sq_ft=avg_sq_ft,
+        )
+        _cache[cache_key] = data
+        return data
+    except Exception as e:
+        logger.warning(f"RentCast data fetch failed: {e}")
+        return {"available": False, "error": str(e)}
+
+
+def run_full_research(property_type: str, city: str, state: str,
+                      address: str = "", zip_code: str = "",
+                      avg_bedrooms: int = 2, avg_sq_ft: int = None) -> dict:
     """Run all market research and return combined results."""
+    # Get lat/lon from RentCast AVM if available (improves Walk Score accuracy)
+    rentcast_data = search_rentcast_data(property_type, address, zip_code,
+                                         avg_bedrooms, avg_sq_ft)
+    lat = lon = None
+    if rentcast_data.get("available"):
+        avm = rentcast_data.get("rent_estimate", {})
+        lat = avm.get("latitude")
+        lon = avm.get("longitude")
+
     return {
         "comps": search_comps(property_type, city, state),
         "cap_rates": search_cap_rates(property_type, city),
         "demographics": search_demographics(city, state),
         "rent_trends": search_rent_trends(property_type, city, state),
         "macro": _fetch_macro_signals(),
+        "rentcast": rentcast_data,
+        "crime": crime.get_city_crime(city, state),
+        "hud_fmr": hud.get_fmr_for_avg_bedrooms(city, state, avg_bedrooms),
+        "walkscore": walkscore.get_scores(address, lat=lat, lon=lon) if address else {
+            "available": False, "note": "No address provided for Walk Score lookup"
+        },
     }
 
 
