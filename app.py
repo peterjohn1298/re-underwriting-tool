@@ -6,13 +6,16 @@ import threading
 import logging
 from flask import Flask, render_template, request, jsonify, send_file
 
-from config import OUTPUT_DIR, UPLOAD_DIR, PORT, DEBUG, SECRET_KEY, ANTHROPIC_API_KEY
+from config import OUTPUT_DIR, UPLOAD_DIR, PORT, DEBUG, SECRET_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY
 from models.assumptions import DealInputs, derive_assumptions
+from models.unit_mix import parse_unit_mix_from_form
 from models.financial_model import build_pro_forma
 from services.market_research import run_full_research
 from services.excel_generator import generate_excel
 from services.word_generator import generate_word
 from services.pdf_generator import generate_pdf
+from services.ai_memo import generate_ai_memo
+from services.database import init_db, save_deal as db_save_deal, load_all_deals, load_deal
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,6 +26,12 @@ app.secret_key = SECRET_KEY
 # In-memory stores
 jobs: dict[str, dict] = {}
 saved_deals: dict[str, dict] = {}  # job_id -> saved deal summary for comparison
+
+# Initialize SQLite database
+try:
+    init_db()
+except Exception as _db_err:
+    logger.warning(f"DB init failed (non-fatal): {_db_err}")
 
 
 def _f(val, default=0.0):
@@ -43,7 +52,7 @@ def _i(val, default=0):
 
 def _parse_form(form) -> DealInputs:
     """Parse form data into DealInputs."""
-    return DealInputs(
+    deal = DealInputs(
         property_type=form.get("property_type", "Multifamily - Class B"),
         address=form.get("address", ""),
         year_built=_i(form.get("year_built"), 2000),
@@ -84,7 +93,27 @@ def _parse_form(form) -> DealInputs:
         # AI/ML features
         enable_ml_valuation=form.get("enable_ml_valuation") == "on",
         enable_rent_prediction=form.get("enable_rent_prediction") == "on",
+        # Waterfall
+        enable_waterfall=form.get("enable_waterfall") == "on",
+        lp_equity_pct=_f(form.get("lp_equity_pct"), 90) / 100,
+        preferred_return=_f(form.get("preferred_return"), 8) / 100,
+        promote_pct=_f(form.get("promote_pct"), 20) / 100,
     )
+
+    # Parse unit mix; if provided, override blended in_place_rent / market_rent
+    unit_mix = parse_unit_mix_from_form(form)
+    if not unit_mix.is_empty():
+        deal.unit_mix = unit_mix
+        # Reconcile total_units with mix if user left total_units blank
+        if deal.total_units == 0:
+            deal.total_units = unit_mix.total_units
+        # Override average rents with blended values from the detailed mix
+        if unit_mix.blended_in_place_rent > 0:
+            deal.in_place_rent = round(unit_mix.blended_in_place_rent, 2)
+        if unit_mix.blended_market_rent > 0:
+            deal.market_rent = round(unit_mix.blended_market_rent, 2)
+
+    return deal
 
 
 def _run_analysis(job_id: str, deal: DealInputs):
@@ -228,6 +257,68 @@ def _run_analysis(job_id: str, deal: DealInputs):
         # --- Integrated Recommendation (Fix #1) ---
         recommendation = _build_recommendation(pro_forma, ml_valuation, lease_analysis, rent_prediction, monte_carlo)
 
+        # --- Waterfall / LP-GP Promote ---
+        waterfall = None
+        if deal.enable_waterfall:
+            jobs[job_id]["status"] = "waterfall"
+            logger.info(f"[{job_id}] Running LP/GP waterfall...")
+            try:
+                from models.waterfall import run_waterfall
+                derived_wf = pro_forma["inputs"]["derived"]
+                rev_wf = pro_forma["reversion"]
+                waterfall = run_waterfall(
+                    lp_equity_pct=deal.lp_equity_pct,
+                    preferred_return=deal.preferred_return,
+                    promote_pct=deal.promote_pct,
+                    equity_invested=derived_wf["equity_required"],
+                    annual_btcfs=pro_forma.get("annual_btcfs", [])[:deal.hold_period_years],
+                    exit_proceeds=rev_wf.get("net_sale_proceeds", 0),
+                    hold_years=deal.hold_period_years,
+                )
+                if waterfall.get("error"):
+                    logger.warning(f"[{job_id}] Waterfall warning: {waterfall['error']}")
+            except Exception as e:
+                logger.error(f"[{job_id}] Waterfall failed: {e}")
+                waterfall = {"error": str(e)}
+
+        # --- AI Deal Memo (Claude-written narrative grounded in deal data) ---
+        ai_memo = None
+        if OPENAI_API_KEY:
+            jobs[job_id]["status"] = "generating_ai_memo"
+            logger.info(f"[{job_id}] Generating AI investment memo...")
+            try:
+                memo_job = {
+                    "deal": deal,
+                    "results": pro_forma,
+                    "market_data": market_data,
+                    "ml_valuation": ml_valuation,
+                    "monte_carlo": monte_carlo,
+                    "recommendation": recommendation,
+                    "rent_prediction": rent_prediction,
+                }
+                ai_memo = generate_ai_memo(memo_job, OPENAI_API_KEY)
+                if ai_memo.get("error"):
+                    logger.warning(f"[{job_id}] AI memo warning: {ai_memo['error']}")
+            except Exception as e:
+                logger.error(f"[{job_id}] AI memo failed: {e}")
+                ai_memo = {"error": str(e)}
+
+        # --- Scenario Comparison (Base / Bull / Bear) ---
+        jobs[job_id]["status"] = "scenarios"
+        logger.info(f"[{job_id}] Running Base/Bull/Bear scenarios...")
+        try:
+            from models.scenarios import run_scenarios
+            scenarios = run_scenarios(deal, build_pro_forma)
+        except Exception as e:
+            logger.error(f"[{job_id}] Scenario comparison failed: {e}")
+            scenarios = {"error": str(e)}
+
+        # Serialize unit mix (needs market_data for HUD FMR comparison)
+        unit_mix_data = None
+        if deal.unit_mix and not deal.unit_mix.is_empty():
+            hud_fmr = market_data.get("hud_fmr", {}) if market_data else {}
+            unit_mix_data = deal.unit_mix.with_hud_fmr(hud_fmr)
+
         jobs[job_id]["status"] = "generating_excel"
         logger.info(f"[{job_id}] Generating Excel...")
 
@@ -248,7 +339,9 @@ def _run_analysis(job_id: str, deal: DealInputs):
                                   rent_prediction=rent_prediction,
                                   sensitivity=sensitivity,
                                   backtest=backtest_result,
-                                  monte_carlo=monte_carlo)
+                                  monte_carlo=monte_carlo,
+                                  ai_memo=ai_memo,
+                                  unit_mix=unit_mix_data)
 
         jobs[job_id]["status"] = "generating_pdf"
         logger.info(f"[{job_id}] Generating PDF report...")
@@ -272,12 +365,22 @@ def _run_analysis(job_id: str, deal: DealInputs):
             "monte_carlo": monte_carlo,
             "sensitivity": sensitivity,
             "recommendation": recommendation,
+            "ai_memo": ai_memo,
+            "unit_mix": unit_mix_data,
+            "waterfall": waterfall,
+            "scenarios": scenarios,
             "excel_path": excel_path,
             "word_path": word_path,
             "pdf_path": pdf_path,
             "deal": deal,
         })
         logger.info(f"[{job_id}] Analysis complete!")
+
+        # Persist to SQLite (non-blocking, non-fatal)
+        try:
+            db_save_deal(job_id, jobs[job_id])
+        except Exception as _e:
+            logger.warning(f"[{job_id}] DB save failed (non-fatal): {_e}")
 
     except Exception as e:
         logger.exception(f"[{job_id}] Analysis failed")
@@ -531,7 +634,11 @@ def results(job_id):
                            backtest=job.get("backtest"),
                            monte_carlo=job.get("monte_carlo"),
                            sensitivity=job.get("sensitivity"),
-                           recommendation=job.get("recommendation"))
+                           recommendation=job.get("recommendation"),
+                           ai_memo=job.get("ai_memo"),
+                           unit_mix=job.get("unit_mix"),
+                           waterfall=job.get("waterfall"),
+                           scenarios=job.get("scenarios"))
 
 
 @app.route("/api/results/<job_id>")
@@ -675,7 +782,7 @@ def _build_chat_system_prompt(job: dict) -> str:
     factual context for Claude. Claude must answer only from this data.
     """
     deal = job.get("deal")
-    pf = job.get("pro_forma", {})
+    pf = job.get("results", {})
     metrics = pf.get("metrics", {})
     reversion = pf.get("reversion", {})
     pro_forma_rows = pf.get("pro_forma", [])
@@ -816,6 +923,14 @@ def _build_chat_system_prompt(job: dict) -> str:
             f"Bike Score: {ws.get('bike_score')} ({ws.get('bike_label')})",
         ]
 
+    fz = market.get("flood_zone", {}) if market else {}
+    if fz.get("available"):
+        lines += [
+            f"FEMA Flood Zone: {fz.get('flood_zone')} — {fz.get('risk_level')}",
+            f"SFHA (insurance required): {'Yes' if fz.get('sfha') else 'No'}",
+            f"Description: {fz.get('description', '')}",
+        ]
+
     if hud.get("available"):
         fmr_br = hud.get("fmr_by_bedroom", {})
         lines += [
@@ -928,33 +1043,82 @@ def chat(job_id):
     history = data.get("history", [])   # list of {role, content}
     user_message = data["message"].strip()
 
-    if not ANTHROPIC_API_KEY:
-        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+    if not OPENAI_API_KEY:
+        return jsonify({"error": "OPENAI_API_KEY not configured"}), 500
 
     try:
-        import anthropic
-        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+        from openai import OpenAI
+        client = OpenAI(api_key=OPENAI_API_KEY)
 
         system_prompt = _build_chat_system_prompt(job)
 
-        messages = []
-        for h in history[-10:]:   # keep last 10 turns for context
+        messages = [{"role": "system", "content": system_prompt}]
+        for h in history[-10:]:
             if h.get("role") in ("user", "assistant") and h.get("content"):
                 messages.append({"role": h["role"], "content": h["content"]})
         messages.append({"role": "user", "content": user_message})
 
-        response = client.messages.create(
-            model="claude-sonnet-4-6",
+        response = client.chat.completions.create(
+            model="gpt-4o",
             max_tokens=1024,
-            system=system_prompt,
             messages=messages,
         )
-        reply = response.content[0].text
+        reply = response.choices[0].message.content
         return jsonify({"response": reply})
 
     except Exception as e:
         logger.error(f"Chat error for job {job_id}: {e}")
         return jsonify({"error": f"AI error: {str(e)}"}), 500
+
+
+@app.route("/api/past_deals")
+def past_deals():
+    """Return all persisted deals from SQLite."""
+    return jsonify(load_all_deals())
+
+
+@app.route("/api/reload_deal/<job_id>", methods=["POST"])
+def reload_deal(job_id):
+    """Reload a persisted deal from SQLite into the in-memory jobs dict."""
+    if job_id in jobs and jobs[job_id].get("status") == "complete":
+        return jsonify({"loaded": True, "source": "memory"})
+    stored = load_deal(job_id)
+    if stored:
+        stored["status"] = "complete"
+        jobs[job_id] = stored
+        return jsonify({"loaded": True, "source": "database"})
+    return jsonify({"loaded": False, "error": "Not found in database"}), 404
+
+
+@app.route("/api/generate_memo/<job_id>", methods=["POST"])
+def regenerate_memo(job_id):
+    """Regenerate the AI investment memo on demand."""
+    if job_id not in jobs:
+        return jsonify({"error": "Job not found"}), 404
+    job = jobs[job_id]
+    if job["status"] != "complete":
+        return jsonify({"error": "Analysis not complete yet"}), 400
+
+    if not OPENAI_API_KEY:
+        return jsonify({"error": "OPENAI_API_KEY not configured"}), 500
+
+    memo_job = {
+        "deal": job.get("deal"),
+        "results": job.get("results"),
+        "market_data": job.get("market_data"),
+        "ml_valuation": job.get("ml_valuation"),
+        "monte_carlo": job.get("monte_carlo"),
+        "recommendation": job.get("recommendation"),
+        "rent_prediction": job.get("rent_prediction"),
+    }
+
+    try:
+        ai_memo = generate_ai_memo(memo_job, OPENAI_API_KEY)
+        jobs[job_id]["ai_memo"] = ai_memo
+        return jsonify(ai_memo)
+    except Exception as e:
+        logger.error(f"Memo regeneration error for job {job_id}: {e}")
+        return jsonify({"error": str(e)}), 500
 
 
 if __name__ == "__main__":

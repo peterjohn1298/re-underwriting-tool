@@ -53,6 +53,15 @@ class DealInputs:
     # Variable growth rates (populated by rent predictor)
     yearly_revenue_growth: list = field(default_factory=list)
 
+    # Unit mix (populated from form if user fills it in)
+    unit_mix: object = None  # models.unit_mix.UnitMix instance or None
+
+    # Waterfall / LP-GP promote
+    enable_waterfall: bool = False
+    lp_equity_pct: float = 0.90       # LP's share of total equity (0-1)
+    preferred_return: float = 0.08    # LP preferred return (annualized)
+    promote_pct: float = 0.20         # GP promote share of residual above pref
+
     # Backward compat
     @property
     def lease_pdf_path(self):

@@ -11,8 +11,8 @@ class LeaseAnalyzer:
     """Analyze lease documents using AI (Gemini or Claude) for NLP extraction."""
 
     def __init__(self, api_key: str = None):
-        from config import ANTHROPIC_API_KEY, GOOGLE_API_KEY
-        self.anthropic_key = api_key or ANTHROPIC_API_KEY
+        from config import OPENAI_API_KEY, GOOGLE_API_KEY
+        self.openai_key = api_key or OPENAI_API_KEY
         self.google_key = GOOGLE_API_KEY
 
     def extract_text_from_pdf(self, pdf_path: str) -> str:
@@ -48,11 +48,11 @@ class LeaseAnalyzer:
             except Exception as e:
                 logger.error(f"Gemini analysis failed: {e}")
 
-        if self.anthropic_key and self.anthropic_key != "your_anthropic_api_key_here":
+        if self.openai_key:
             try:
-                return self._claude_analysis(text)
+                return self._openai_analysis(text)
             except Exception as e:
-                logger.error(f"Claude analysis failed: {e}")
+                logger.error(f"OpenAI analysis failed: {e}")
 
         return self._fallback_analysis(text)
 
@@ -183,24 +183,22 @@ LEASE DOCUMENT TEXT:
                 "text_length": len(text),
             }
 
-    def _claude_analysis(self, text: str) -> dict:
-        """Use Claude API to extract structured lease data (fallback if Gemini unavailable)."""
-        import anthropic
+    def _openai_analysis(self, text: str) -> dict:
+        """Use OpenAI GPT-4o to extract structured lease data (fallback if Gemini unavailable)."""
+        from openai import OpenAI
 
-        client = anthropic.Anthropic(api_key=self.anthropic_key)
+        client = OpenAI(api_key=self.openai_key)
         prompt = self._get_lease_prompt(text)
 
-        message = client.messages.create(
-            model="claude-sonnet-4-20250514",
+        response = client.chat.completions.create(
+            model="gpt-4o",
             max_tokens=2000,
             messages=[{"role": "user", "content": prompt}],
         )
 
-        response_text = message.content[0].text
+        response_text = response.choices[0].message.content
 
-        # Parse JSON from response
         try:
-            # Try to extract JSON from markdown code blocks if present
             if "```json" in response_text:
                 json_str = response_text.split("```json")[1].split("```")[0]
             elif "```" in response_text:
@@ -209,15 +207,15 @@ LEASE DOCUMENT TEXT:
                 json_str = response_text
 
             result = json.loads(json_str.strip())
-            result["analysis_method"] = "claude_nlp"
+            result["analysis_method"] = "openai_nlp"
             result["text_length"] = len(text)
             return result
 
         except json.JSONDecodeError:
-            logger.warning("Failed to parse Claude JSON response")
+            logger.warning("Failed to parse OpenAI JSON response")
             return {
                 "summary": response_text[:500],
-                "analysis_method": "claude_nlp_raw",
+                "analysis_method": "openai_nlp_raw",
                 "raw_response": response_text,
                 "text_length": len(text),
             }

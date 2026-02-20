@@ -10,6 +10,7 @@ from services.api_clients.rentcast_client import RentCastClient
 from services.api_clients.crime_client import CrimeClient
 from services.api_clients.hud_client import HUDClient
 from services.api_clients.walkscore_client import WalkScoreClient
+from services.api_clients.fema_client import get_flood_zone
 
 logger = logging.getLogger(__name__)
 
@@ -330,6 +331,9 @@ def run_full_research(property_type: str, city: str, state: str,
         "hud_fmr": hud.get_fmr_for_avg_bedrooms(city, state, avg_bedrooms),
         "walkscore": walkscore.get_scores(address, lat=lat, lon=lon) if address else {
             "available": False, "note": "No address provided for Walk Score lookup"
+        },
+        "flood_zone": get_flood_zone(lat, lon) if lat and lon else {
+            "available": False, "note": "No coordinates — flood zone lookup skipped"
         },
     }
 

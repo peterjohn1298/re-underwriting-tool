@@ -29,40 +29,41 @@ PDF report, GitHub Actions CI/CD (lint + 51 tests + auto-deploy to Render), DRIV
 
 ---
 
-## In-Progress Sections 🔨
+## Completed Sections (continued) ✅
 
-### 6. AI Chat Interface (Deal Assistant)
+### ✅ 6. AI Chat Interface (Deal Assistant)
 Claude-powered conversational Q&A grounded in the complete deal analysis results.
 Analyst can ask: "What's the main risk?", "What if vacancy hits 10%?", "How does
 this compare to market FMR?" — all answered in context of the actual deal data.
 
-### 7. AI-Generated Deal Memo
-Claude writes the full investment memorandum using real market data as context —
-replacing the current fill-in template. Sections: executive summary, market analysis,
-property description, financial summary, risks, recommendation.
+### ✅ 7. AI-Generated Deal Memo
+Claude (claude-sonnet-4-6) writes 6-section investment narrative grounded in deal data:
+executive summary, market analysis, property overview, financial highlights, risk factors,
+recommendation. Auto-generated during pipeline, embedded in Word doc, displayed on results
+page with on-demand regeneration button. No figures fabricated.
+
+### ✅ 8. Unit Mix Modeling
+Studio/1BR/2BR/3BR breakdown with individual unit counts, in-place rents, and market rents.
+Blended rent auto-overrides the single average. HUD FMR comparison per bedroom type.
+Unit mix table on results page + Word doc. Live revenue calculator in the form.
 
 ---
 
-## Planned Sections 📋
+### ✅ 9. Waterfall / LP-GP Promote
+Two-tier promote waterfall: return of capital → LP preferred return (8% compounded) →
+residual split (LP/GP promote). Outputs LP IRR, GP IRR, LP equity multiple, GP equity
+multiple, promote dollars. Form toggle with configurable LP%, pref return%, promote%.
 
-### 8. Unit Mix Modeling
-Detailed breakdown by bedroom type (Studio/1BR/2BR/3BR) with individual unit counts,
-rents, and vacancy rates. Feeds the financial model with bedroom-weighted blended rent
-instead of a single average. Required for accurate HUD FMR comparison per bedroom type.
+### ✅ 10. Scenario Comparison (Base / Bull / Bear)
+Auto-generated Base/Bull/Bear scenarios with configurable rent growth, occupancy,
+and exit cap offsets. Side-by-side comparison table on results page. Runs without
+user configuration — default offsets: Bull +1.5% growth/+3% occ/−25bps exit,
+Bear −1.5%/−5%/+50bps.
 
-### 9. Waterfall / LP-GP Promote
-LP/GP capital structure with preferred return, catch-up, and promote tiers.
-Models: who gets what, when, under Base/Bull/Bear scenarios. Essential for
-institutional and fund-level underwriting.
-
-### 10. Scenario Comparison (Base / Bull / Bear)
-Run three scenarios simultaneously with different rent growth, vacancy, and exit cap
-assumptions. Side-by-side comparison dashboard. Analyst picks the scenario; tool shows
-the distribution of outcomes.
-
-### 11. OpenFEMA Flood Zone + Database Persistence
-Flood zone designation by address (NFIP via OpenFEMA — free, no key).
-SQLite database so deals persist across server restarts with versioning history.
+### ✅ 11. OpenFEMA Flood Zone + Database Persistence
+FEMA NFHL REST API flood zone lookup by lat/lon (no API key). Identifies Zone AE, X, V,
+etc. with SFHA flag and lender insurance requirement. SQLite persistence via services/database.py
+— deals saved on completion, survive server restarts, reloadable via /api/reload_deal/<id>.
 
 ---
 
@@ -91,10 +92,10 @@ Build order for remaining work: S6 → S7 → S8 → S9 → S10 → S11
 |-------|--------|----------|
 | Define (开题调研) | ✅ Complete | `product-overview.md` |
 | Represent (Roadmap) | ✅ Complete | `roadmap.md` (this file) |
-| Implement | 🔨 In Progress | `app.py`, `models/`, `services/` |
-| Validate | ✅ Partial | `validation.md` (51 tests passing, CI live) |
-| Evolve | 🔨 In Progress | Deployed on Render, CI/CD active |
-| Reflect | ⏳ Pending | `reflect.md` (after all sections complete) |
+| Implement | ✅ Complete | `app.py`, `models/`, `services/` — 11/11 sections |
+| Validate | ✅ Active | `validation.md` (51 tests, CI green, manual QA all sections) |
+| Evolve | ✅ Active | Deployed on Render, CI/CD auto-deploy on master push |
+| Reflect | ✅ Complete | `reflect.md` |
 
 ---
 

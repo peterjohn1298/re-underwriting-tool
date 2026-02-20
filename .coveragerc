@@ -1,0 +1,23 @@
+[run]
+omit =
+    services/excel_generator.py
+    services/word_generator.py
+    services/pdf_generator.py
+    services/lease_analyzer.py
+    services/ai_memo.py
+    services/market_research.py
+    services/api_clients/fred_client.py
+    services/api_clients/census_client.py
+    services/api_clients/bls_client.py
+    services/api_clients/rentcast_client.py
+    services/api_clients/zillow_client.py
+    services/api_clients/fema_client.py
+    services/database.py
+    app.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:

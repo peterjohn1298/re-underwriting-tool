@@ -133,6 +133,69 @@
                 </div>
             </div>
 
+            <!-- Unit Mix Section -->
+            <div class="card bg-dark-card mt-3">
+                <div class="card-header bg-navy d-flex justify-content-between align-items-center"
+                     style="cursor:pointer;" data-bs-toggle="collapse" data-bs-target="#unitMixPanel">
+                    <h5 class="mb-0"><i class="bi bi-grid-3x2-gap me-2"></i>Unit Mix (Optional)</h5>
+                    <span class="badge bg-secondary">Leave blank to use avg rent above</span>
+                </div>
+                <div id="unitMixPanel" class="collapse">
+                    <div class="card-body">
+                        <p class="text-muted small mb-3">
+                            Break down units by bedroom type. When filled, the blended rent overrides
+                            the single average rent and enables per-type HUD FMR comparison.
+                        </p>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-bordered align-middle mb-0" id="unitMixTable">
+                                <thead>
+                                    <tr class="text-center" style="background:#1b2a4a;">
+                                        <th>Type</th>
+                                        <th>Units <small class="text-muted fw-normal">(count)</small></th>
+                                        <th>In-Place Rent <small class="text-muted fw-normal">($/mo)</small></th>
+                                        <th>Market Rent <small class="text-muted fw-normal">($/mo)</small></th>
+                                        <th>Annual Revenue</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for t in [('Studio','studio'),('1BR','1br'),('2BR','2br'),('3BR','3br')] %}
+                                    <tr id="row-{{ t[1] }}">
+                                        <td class="fw-semibold text-gold">{{ t[0] }}</td>
+                                        <td>
+                                            <input type="number" class="form-control form-control-sm bg-dark text-white"
+                                                   name="um_count_{{ t[0] }}" min="0" step="1" placeholder="0"
+                                                   oninput="updateUnitMixRow('{{ t[1] }}')">
+                                        </td>
+                                        <td>
+                                            <input type="number" class="form-control form-control-sm bg-dark text-white"
+                                                   name="um_rent_{{ t[0] }}" min="0" step="10" placeholder="0"
+                                                   oninput="updateUnitMixRow('{{ t[1] }}')">
+                                        </td>
+                                        <td>
+                                            <input type="number" class="form-control form-control-sm bg-dark text-white"
+                                                   name="um_market_rent_{{ t[0] }}" min="0" step="10" placeholder="optional">
+                                        </td>
+                                        <td class="text-end text-muted" id="rev-{{ t[1] }}">—</td>
+                                    </tr>
+                                    {% endfor %}
+                                    <tr class="fw-bold" style="background:#111a2e;">
+                                        <td>TOTAL</td>
+                                        <td id="um-total-units" class="text-center">0</td>
+                                        <td id="um-blended-rent" class="text-center text-gold">—</td>
+                                        <td></td>
+                                        <td id="um-total-rev" class="text-end text-gold">—</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                        <small class="text-muted mt-2 d-block">
+                            <i class="bi bi-info-circle me-1"></i>
+                            The blended in-place rent will auto-fill the "Avg In-Place Rent" field above.
+                        </small>
+                    </div>
+                </div>
+            </div>
+
             <!-- AI/ML Features Section -->
             <div class="card bg-dark-card mt-3">
                 <div class="card-header bg-navy">
@@ -159,12 +222,42 @@
                                     <small class="text-muted d-block">GradientBoosting model predicts fair value</small>
                                 </label>
                             </div>
-                            <div class="form-check form-switch">
+                            <div class="form-check form-switch mb-2">
                                 <input class="form-check-input" type="checkbox" name="enable_rent_prediction" id="rentPrediction">
                                 <label class="form-check-label" for="rentPrediction">
                                     <i class="bi bi-graph-up-arrow"></i> Predictive Rent Growth
                                     <small class="text-muted d-block">Feeds variable growth rates into the pro forma</small>
                                 </label>
+                            </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="enable_waterfall" id="enableWaterfall"
+                                       onchange="toggleWaterfall(this.checked)">
+                                <label class="form-check-label" for="enableWaterfall">
+                                    <i class="bi bi-layers"></i> LP/GP Waterfall Promote
+                                    <small class="text-muted d-block">Models LP vs GP distributions with preferred return</small>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Waterfall Parameters (hidden until toggled) -->
+                    <div id="waterfallParams" class="mt-3 p-3 border border-secondary rounded" style="display:none;">
+                        <h6 class="text-gold mb-3"><i class="bi bi-layers me-2"></i>LP/GP Capital Structure</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">LP Equity Share (%)</label>
+                                <input type="number" class="form-control" name="lp_equity_pct" value="90" min="50" max="99" step="1">
+                                <small class="text-muted">GP gets the remainder</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">LP Preferred Return (%)</label>
+                                <input type="number" class="form-control" name="preferred_return" value="8" min="0" max="20" step="0.5">
+                                <small class="text-muted">Annualized, compounded</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">GP Promote Share (%)</label>
+                                <input type="number" class="form-control" name="promote_pct" value="20" min="0" max="50" step="5">
+                                <small class="text-muted">GP's % of residual above pref</small>
                             </div>
                         </div>
                     </div>
@@ -306,4 +399,61 @@
         </div>
     </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+function toggleWaterfall(show) {
+    document.getElementById('waterfallParams').style.display = show ? 'block' : 'none';
+}
+
+// Unit mix live calculations
+const unitTypes = [
+    {id: 'studio', name: 'Studio'},
+    {id: '1br',    name: '1BR'},
+    {id: '2br',    name: '2BR'},
+    {id: '3br',    name: '3BR'},
+];
+
+function updateUnitMixRow(typeId) {
+    const nameMap = {studio: 'Studio', '1br': '1BR', '2br': '2BR', '3br': '3BR'};
+    const name = nameMap[typeId];
+    const count = parseFloat(document.querySelector(`[name="um_count_${name}"]`).value) || 0;
+    const rent  = parseFloat(document.querySelector(`[name="um_rent_${name}"]`).value)  || 0;
+    const rev = count * rent * 12;
+    const cell = document.getElementById(`rev-${typeId}`);
+    cell.textContent = rev > 0 ? '$' + rev.toLocaleString('en-US', {maximumFractionDigits: 0}) : '—';
+    updateUnitMixTotals();
+}
+
+function updateUnitMixTotals() {
+    const nameMap = {studio: 'Studio', '1br': '1BR', '2br': '2BR', '3br': '3BR'};
+    let totalUnits = 0, totalRev = 0, weightedRent = 0;
+    unitTypes.forEach(t => {
+        const name = nameMap[t.id];
+        const count = parseFloat(document.querySelector(`[name="um_count_${name}"]`).value) || 0;
+        const rent  = parseFloat(document.querySelector(`[name="um_rent_${name}"]`).value)  || 0;
+        totalUnits += count;
+        totalRev   += count * rent * 12;
+        weightedRent += count * rent;
+    });
+    document.getElementById('um-total-units').textContent = totalUnits || '0';
+    document.getElementById('um-total-rev').textContent =
+        totalRev > 0 ? '$' + totalRev.toLocaleString('en-US', {maximumFractionDigits: 0}) : '—';
+    const blended = totalUnits > 0 ? weightedRent / totalUnits : 0;
+    document.getElementById('um-blended-rent').textContent =
+        blended > 0 ? '$' + blended.toFixed(0) + '/unit' : '—';
+
+    // Auto-fill the main in_place_rent field with blended value
+    if (blended > 0) {
+        const rentField = document.querySelector('[name="in_place_rent"]');
+        if (rentField) rentField.value = blended.toFixed(0);
+    }
+    // Auto-fill total_units
+    if (totalUnits > 0) {
+        const unitsField = document.querySelector('[name="total_units"]');
+        if (unitsField && !unitsField.value) unitsField.value = totalUnits;
+    }
+}
+</script>
 {% endblock %}
