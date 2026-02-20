@@ -181,7 +181,7 @@ def _build_chat_system_prompt() -> str:
             f"IRR: P10={f'{p10:.1f}%' if p10 is not None else 'N/A'}  "
             f"P50={f'{p50:.1f}%' if p50 is not None else 'N/A'}  "
             f"P90={f'{p90:.1f}%' if p90 is not None else 'N/A'}",
-            f"Mean IRR: {f\"{mc.get('mean_irr'):.1f}%\" if mc.get('mean_irr') is not None else 'N/A'}",
+            f"Mean IRR: {mc.get('mean_irr'):.1f}%" if mc.get('mean_irr') is not None else "Mean IRR: N/A",
         ]
         for label, val in probs.items():
             lines.append(f"  {label}: {val:.1f}%")
