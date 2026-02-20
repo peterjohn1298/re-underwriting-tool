@@ -32,7 +32,7 @@ if "results" not in st.session_state:
 R = st.session_state["results"]
 
 st.title("💬 AI Deal Assistant")
-st.caption("Ask any question about this deal — grounded in your analysis results. Powered by Google Gemini.")
+st.caption("Ask any question about this deal — grounded in your analysis results. Powered by GPT-4o.")
 
 
 # ── Build system prompt (mirrors app.py _build_chat_system_prompt) ────────────
@@ -219,17 +219,17 @@ def _build_chat_system_prompt() -> str:
 
 
 # ── API key resolution ────────────────────────────────────────────────────────
-def _get_google_key() -> str:
+def _get_openai_key() -> str:
     try:
-        k = st.secrets.get("GOOGLE_API_KEY", "")
+        k = st.secrets.get("OPENAI_API_KEY", "")
     except Exception:
         k = ""
-    return k or os.environ.get("GOOGLE_API_KEY", "")
+    return k or os.environ.get("OPENAI_API_KEY", "")
 
 
-gemini_key = _get_google_key()
-if not gemini_key:
-    st.warning("No Google API key configured. Add GOOGLE_API_KEY to your Streamlit secrets.")
+openai_key = _get_openai_key()
+if not openai_key:
+    st.warning("No OpenAI API key configured. Add OPENAI_API_KEY to your Streamlit secrets.")
 
 
 # ── Chat UI ───────────────────────────────────────────────────────────────────
@@ -243,33 +243,34 @@ for msg in st.session_state["chat_history"]:
 
 # Chat input
 prompt = st.chat_input("Ask anything about this deal... (e.g. 'What is the main risk?')")
-if prompt and gemini_key:
+if prompt and openai_key:
     # Show user message
     st.session_state["chat_history"].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     # Build conversation history (last 10 turns)
-    # Gemini uses role "model" instead of "assistant", and "parts" instead of "content"
     system_prompt = _build_chat_system_prompt()
-    gemini_history = []
+    messages = [{"role": "system", "content": system_prompt}]
     for h in st.session_state["chat_history"][-10:]:
         if h["role"] in ("user", "assistant"):
-            role = "model" if h["role"] == "assistant" else "user"
-            gemini_history.append({"role": role, "parts": [h["content"]]})
+            messages.append({"role": h["role"], "content": h["content"]})
 
-    # Call Gemini — streaming so tokens appear word-by-word
+    # Call GPT-4o — streaming so tokens appear word-by-word
     with st.chat_message("assistant"):
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=gemini_key)
-            model = genai.GenerativeModel(
-                model_name="gemini-2.0-flash",
-                system_instruction=system_prompt,
+            from openai import OpenAI
+            client = OpenAI(api_key=openai_key)
+            stream = client.chat.completions.create(
+                model="gpt-4o",
+                messages=messages,
+                max_tokens=1500,
+                stream=True,
             )
-            response = model.generate_content(gemini_history, stream=True)
             reply = st.write_stream(
-                chunk.text for chunk in response if hasattr(chunk, "text") and chunk.text
+                chunk.choices[0].delta.content
+                for chunk in stream
+                if chunk.choices[0].delta.content
             )
             st.session_state["chat_history"].append({"role": "assistant", "content": reply})
         except Exception as e:
@@ -277,8 +278,8 @@ if prompt and gemini_key:
             st.error(err_msg)
             st.session_state["chat_history"].append({"role": "assistant", "content": err_msg})
 
-elif prompt and not gemini_key:
-    st.error("Google API key required for chat. Please configure GOOGLE_API_KEY in Streamlit secrets.")
+elif prompt and not openai_key:
+    st.error("OpenAI API key required for chat. Please configure OPENAI_API_KEY in Streamlit secrets.")
 
 # Clear history button
 if st.session_state["chat_history"]:
