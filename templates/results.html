@@ -9,13 +9,23 @@
 
 <div class="row">
     <div class="col-12">
-        <div class="d-flex justify-content-between align-items-center mb-3">
+        <div class="d-flex justify-content-between align-items-center mb-2">
             <div>
-                <h2 class="text-gold mb-0"><i class="bi bi-graph-up-arrow"></i> {{ derived.property_name }}</h2>
+                <h2 class="fw-bold mb-0">{{ derived.property_name }}</h2>
                 <small class="text-muted">{{ deal.property_type }} &bull; {{ deal.address }} &bull; Built {{ deal.year_built }}</small>
             </div>
-            <a href="/" class="btn btn-outline-light btn-sm"><i class="bi bi-plus-lg"></i> New Analysis</a>
+            <a href="/" class="btn btn-outline-light btn-sm"><i class="bi bi-plus-lg me-1"></i>New Analysis</a>
         </div>
+
+        <!-- Section navigation -->
+        <nav class="d-flex gap-1 flex-wrap mb-4 pb-2" style="border-bottom:1px solid var(--border);">
+            <a href="#section-overview"  class="btn btn-sm" style="background:var(--surface);border:1px solid var(--border);color:var(--text-muted);border-radius:20px;font-size:0.78rem;"><i class="bi bi-speedometer2 me-1"></i>Overview</a>
+            <a href="#section-returns"   class="btn btn-sm" style="background:var(--surface);border:1px solid var(--border);color:var(--text-muted);border-radius:20px;font-size:0.78rem;"><i class="bi bi-graph-up-arrow me-1"></i>Returns</a>
+            <a href="#section-market"    class="btn btn-sm" style="background:var(--surface);border:1px solid var(--border);color:var(--text-muted);border-radius:20px;font-size:0.78rem;"><i class="bi bi-map me-1"></i>Market Data</a>
+            <a href="#section-proforma"  class="btn btn-sm" style="background:var(--surface);border:1px solid var(--border);color:var(--text-muted);border-radius:20px;font-size:0.78rem;"><i class="bi bi-table me-1"></i>Pro Forma</a>
+            <a href="#section-memo"      class="btn btn-sm" style="background:rgba(200,169,81,0.12);border:1px solid rgba(200,169,81,0.35);color:var(--gold);border-radius:20px;font-size:0.78rem;font-weight:600;"><i class="bi bi-pencil-square me-1"></i>AI Memo</a>
+            <a href="#section-downloads" class="btn btn-sm btn-gold ms-auto" style="border-radius:20px;font-size:0.78rem;"><i class="bi bi-download me-1"></i>Download</a>
+        </nav>
 
         <!-- Integrated Recommendation Banner (Fix #1) -->
         {% if recommendation %}
@@ -60,96 +70,208 @@
         {% endif %}
         {% endif %}
 
-        <!-- Deal Snapshot -->
-        <div class="row g-3 mb-4">
-            <div class="col-md-2 col-4">
-                <div class="card bg-dark-card"><div class="card-body text-center py-2">
-                    <small class="text-muted d-block">Price</small>
-                    <strong>${{ "{:,.0f}".format(deal.purchase_price / 1000000) }}M</strong>
-                </div></div>
-            </div>
-            <div class="col-md-2 col-4">
-                <div class="card bg-dark-card"><div class="card-body text-center py-2">
-                    <small class="text-muted d-block">Units</small>
-                    <strong>{{ deal.total_units }}</strong>
-                </div></div>
-            </div>
-            <div class="col-md-2 col-4">
-                <div class="card bg-dark-card"><div class="card-body text-center py-2">
-                    <small class="text-muted d-block">$/Unit</small>
-                    <strong>${{ "{:,.0f}".format(m.price_per_unit) }}</strong>
-                </div></div>
-            </div>
-            <div class="col-md-2 col-4">
-                <div class="card bg-dark-card"><div class="card-body text-center py-2">
-                    <small class="text-muted d-block">In-Place</small>
-                    <strong>${{ "{:,.0f}".format(deal.in_place_rent) }}/mo</strong>
-                </div></div>
-            </div>
-            <div class="col-md-2 col-4">
-                <div class="card bg-dark-card"><div class="card-body text-center py-2">
-                    <small class="text-muted d-block">Market</small>
-                    <strong>${{ "{:,.0f}".format(deal.market_rent) }}/mo</strong>
-                </div></div>
-            </div>
-            <div class="col-md-2 col-4">
-                <div class="card bg-dark-card"><div class="card-body text-center py-2">
-                    <small class="text-muted d-block">Occupancy</small>
-                    <strong>{{ "%.0f"|format(deal.occupancy * 100) }}%</strong>
-                </div></div>
+        <!-- ===== CLIENT-FRIENDLY INVESTOR SNAPSHOT ===== -->
+        <div id="section-overview"></div>
+        {% set rec_label = recommendation.recommendation if recommendation else (
+            'BUY' if m.levered_irr and m.levered_irr >= 0.12 else
+            ('HOLD / CONDITIONAL' if m.levered_irr and m.levered_irr >= 0.08 else 'PASS')
+        ) %}
+        {% set is_buy  = 'BUY' in rec_label and 'PASS' not in rec_label %}
+        {% set is_hold = 'HOLD' in rec_label or 'CONDITIONAL' in rec_label %}
+        {% set is_pass = 'PASS' in rec_label %}
+        {% set ret_good = m.levered_irr is not none and m.levered_irr >= 0.12 %}
+        {% set ret_fair = m.levered_irr is not none and m.levered_irr >= 0.08 and not ret_good %}
+        {% set ret_weak = m.levered_irr is none or m.levered_irr < 0.08 %}
+        {% set safe_good = m.dscr_yr1 is not none and m.dscr_yr1 >= 1.25 %}
+        {% set safe_fair = m.dscr_yr1 is not none and m.dscr_yr1 >= 1.0 and not safe_good %}
+        {% set safe_weak = m.dscr_yr1 is none or m.dscr_yr1 < 1.0 %}
+        {% set mkt_good  = deal.occupancy >= 0.90 %}
+        {% set mkt_fair  = deal.occupancy >= 0.80 and not mkt_good %}
+        {% set mkt_weak  = deal.occupancy < 0.80 %}
+        {% set val_good  = ml_valuation and not ml_valuation.get('error') and ml_valuation.assessment == 'UNDERVALUED' %}
+        {% set val_weak  = ml_valuation and not ml_valuation.get('error') and ml_valuation.assessment == 'OVERVALUED' %}
+        {% set val_fair  = not val_good and not val_weak %}
+        {% set risk_good = monte_carlo and not monte_carlo.get('error') and monte_carlo.get('irr_p10') is not none and monte_carlo.get('irr_p10') >= 0.08 %}
+        {% set risk_fair = not risk_good and monte_carlo and not monte_carlo.get('error') and monte_carlo.get('irr_p10') is not none and monte_carlo.get('irr_p10') >= 0.04 %}
+        {% set risk_weak = not risk_good and not risk_fair %}
+        {% set rent_gap  = ((deal.market_rent - deal.in_place_rent) / deal.market_rent * 100) if deal.market_rent > 0 else 0 %}
+
+        <div class="client-summary verdict-{{ 'buy' if is_buy else ('hold' if is_hold else 'pass') }}">
+            <div class="row align-items-start g-4">
+                <div class="col-md-5">
+                    <div class="verdict-badge {{ 'buy' if is_buy else ('hold' if is_hold else 'pass') }}">
+                        <i class="bi {% if is_buy %}bi-check-circle-fill{% elif is_hold %}bi-exclamation-circle-fill{% else %}bi-x-circle-fill{% endif %}"></i>
+                        {{ rec_label }}
+                    </div>
+                    <p class="text-muted mb-2" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.7px;font-weight:600;">Plain-English Investor Summary</p>
+                    <ul class="client-bullet-list">
+                        <li>
+                            <span class="bullet-icon">{% if ret_good %}✅{% elif ret_fair %}🟡{% else %}⚠️{% endif %}</span>
+                            <span>{% if m.levered_irr is not none %}
+                                {% if ret_good %}<strong>Strong returns.</strong> Targets a <span class="stat-pill">{{ "%.1f"|format(m.levered_irr * 100) }}% annual return</span> — above institutional thresholds.
+                                {% elif ret_fair %}<strong>Moderate returns.</strong> Projected at <span class="stat-pill">{{ "%.1f"|format(m.levered_irr * 100) }}%</span> — acceptable but not exceptional.
+                                {% else %}<strong>Below-target returns.</strong> At <span class="stat-pill">{{ "%.1f"|format(m.levered_irr * 100) }}%</span>, may not meet standard investor hurdles.
+                                {% endif %}
+                            {% else %}<strong>Returns:</strong> Could not be calculated from available data.{% endif %}</span>
+                        </li>
+                        <li>
+                            <span class="bullet-icon">{% if m.equity_multiple is not none and m.equity_multiple >= 1.7 %}✅{% elif m.equity_multiple is not none and m.equity_multiple >= 1.3 %}🟡{% else %}⚠️{% endif %}</span>
+                            <span>{% if m.equity_multiple is not none and m.equity_multiple >= 1.7 %}<strong>Strong money-on-money.</strong> Every $1 invested is projected to return <span class="stat-pill">{{ "%.2f"|format(m.equity_multiple) }}x</span> over the hold period.
+                            {% elif m.equity_multiple is not none and m.equity_multiple >= 1.3 %}<strong>Modest upside.</strong> Every $1 grows to <span class="stat-pill">{{ "%.2f"|format(m.equity_multiple) }}x</span> — recovers principal with some gain.
+                            {% elif m.equity_multiple is not none %}<strong>Limited upside.</strong> Only <span class="stat-pill">{{ "%.2f"|format(m.equity_multiple) }}x</span> — thin margin of safety.
+                            {% else %}<strong>Equity multiple:</strong> Could not be calculated.{% endif %}</span>
+                        </li>
+                        <li>
+                            <span class="bullet-icon">{% if safe_good %}✅{% elif safe_fair %}🟡{% else %}⚠️{% endif %}</span>
+                            <span>{% if safe_good %}<strong>Comfortable debt coverage.</strong> Property income covers the mortgage <span class="stat-pill">{{ "%.2f"|format(m.dscr_yr1) }}x</span> — solid safety buffer.
+                            {% elif safe_fair %}<strong>Tight debt coverage.</strong> Income covers debt at <span class="stat-pill">{{ "%.2f"|format(m.dscr_yr1) }}x</span> — little room for setbacks.
+                            {% else %}<strong>Debt coverage risk.</strong> Income does not fully cover loan payments at <span class="stat-pill">{{ "%.2f"|format(m.dscr_yr1) }}x</span>.{% endif %}</span>
+                        </li>
+                        {% if rent_gap > 3 %}
+                        <li>
+                            <span class="bullet-icon">📈</span>
+                            <span><strong>Rent upside available.</strong> Current rents at <span class="stat-pill">${{ "{:,.0f}".format(deal.in_place_rent) }}/mo</span> are <span class="stat-pill">{{ "%.0f"|format(rent_gap) }}% below</span> market (<span class="stat-pill">${{ "{:,.0f}".format(deal.market_rent) }}/mo</span>).</span>
+                        </li>
+                        {% endif %}
+                        {% if ml_valuation and not ml_valuation.get('error') %}
+                        <li>
+                            <span class="bullet-icon">{% if val_good %}✅{% elif val_weak %}⚠️{% else %}🟡{% endif %}</span>
+                            <span><strong>AI valuation: {{ ml_valuation.assessment | replace('_', ' ') | title }}.</strong>
+                            {% if val_good %}Model estimates property worth <span class="stat-pill">${{ "{:,.0f}".format(ml_valuation.predicted_total_value) }}</span> — supporting the purchase price.
+                            {% elif val_weak %}Model suggests price is <span class="stat-pill">{{ "%.1f"|format(ml_valuation.premium_discount_pct) }}% above</span> estimated fair value — exercise caution.
+                            {% else %}Purchase price is in line with AI model estimates.{% endif %}</span>
+                        </li>
+                        {% endif %}
+                    </ul>
+                </div>
+                <div class="col-md-7">
+                    <p class="text-muted mb-2" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.7px;font-weight:600;">Deal Scorecard</p>
+                    <div class="scorecard-grid">
+                        <div class="scorecard-item">
+                            <span class="scorecard-icon">{% if ret_good %}💰{% elif ret_fair %}💵{% else %}📉{% endif %}</span>
+                            <span class="scorecard-label">Returns</span>
+                            <span class="scorecard-rating {% if ret_good %}good{% elif ret_fair %}fair{% else %}weak{% endif %}">{% if ret_good %}Strong{% elif ret_fair %}Fair{% else %}Weak{% endif %}</span>
+                        </div>
+                        <div class="scorecard-item">
+                            <span class="scorecard-icon">{% if safe_good %}🛡️{% elif safe_fair %}⚖️{% else %}🚨{% endif %}</span>
+                            <span class="scorecard-label">Debt Safety</span>
+                            <span class="scorecard-rating {% if safe_good %}good{% elif safe_fair %}fair{% else %}weak{% endif %}">{% if safe_good %}Safe{% elif safe_fair %}Tight{% else %}Risk{% endif %}</span>
+                        </div>
+                        <div class="scorecard-item">
+                            <span class="scorecard-icon">{% if mkt_good %}🏙️{% elif mkt_fair %}🏘️{% else %}📊{% endif %}</span>
+                            <span class="scorecard-label">Occupancy</span>
+                            <span class="scorecard-rating {% if mkt_good %}good{% elif mkt_fair %}fair{% else %}weak{% endif %}">{{ "%.0f"|format(deal.occupancy * 100) }}%</span>
+                        </div>
+                        <div class="scorecard-item">
+                            <span class="scorecard-icon">{% if val_good %}🎯{% elif val_weak %}⚠️{% else %}⚖️{% endif %}</span>
+                            <span class="scorecard-label">Valuation</span>
+                            <span class="scorecard-rating {% if val_good %}good{% elif val_weak %}weak{% else %}fair{% endif %}">{% if val_good %}Good Buy{% elif val_weak %}Pricey{% else %}Fair{% endif %}</span>
+                        </div>
+                        <div class="scorecard-item">
+                            <span class="scorecard-icon">{% if risk_good %}📐{% elif risk_fair %}🎲{% else %}⚡{% endif %}</span>
+                            <span class="scorecard-label">Risk Profile</span>
+                            <span class="scorecard-rating {% if risk_good %}good{% elif risk_fair %}fair{% else %}weak{% endif %}">{% if risk_good %}Low{% elif risk_fair %}Moderate{% else %}High{% endif %}</span>
+                        </div>
+                    </div>
+                    <p class="text-muted mt-2 mb-0" style="font-size:0.7rem;"><i class="bi bi-info-circle me-1"></i>Automated scorecard — full technical detail below.</p>
+                </div>
             </div>
         </div>
 
-        <!-- Return Metrics Cards (Fix #9: before-tax & after-tax) -->
+        <!-- Deal Snapshot -->
+        <div class="row g-2 mb-4">
+            <div class="col-md-2 col-4">
+                <div class="snapshot-chip">
+                    <span class="chip-label">Price</span>
+                    <span class="chip-value">${{ "{:,.1f}".format(deal.purchase_price / 1000000) }}M</span>
+                </div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="snapshot-chip">
+                    <span class="chip-label">Units</span>
+                    <span class="chip-value">{{ deal.total_units }}</span>
+                </div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="snapshot-chip">
+                    <span class="chip-label">$/Unit</span>
+                    <span class="chip-value">${{ "{:,.0f}".format(m.price_per_unit) }}</span>
+                </div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="snapshot-chip">
+                    <span class="chip-label">In-Place Rent</span>
+                    <span class="chip-value">${{ "{:,.0f}".format(deal.in_place_rent) }}/mo</span>
+                </div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="snapshot-chip">
+                    <span class="chip-label">Market Rent</span>
+                    <span class="chip-value" style="color:{% if deal.market_rent > deal.in_place_rent %}var(--green){% else %}var(--text){% endif %};">${{ "{:,.0f}".format(deal.market_rent) }}/mo</span>
+                </div>
+            </div>
+            <div class="col-md-2 col-4">
+                <div class="snapshot-chip">
+                    <span class="chip-label">Occupancy</span>
+                    <span class="chip-value" style="color:{% if deal.occupancy >= 0.90 %}var(--green){% elif deal.occupancy >= 0.80 %}var(--amber){% else %}var(--red){% endif %};">{{ "%.0f"|format(deal.occupancy * 100) }}%</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Return Metrics Cards -->
+        <div id="section-returns"></div>
+        <div class="section-divider">Key Return Metrics</div>
         <div class="row g-3 mb-4">
             <div class="col-md-3 col-6">
-                <div class="card bg-dark-card metric-card">
-                    <div class="card-body text-center">
-                        <small class="text-muted">Levered IRR</small>
-                        <h3 class="text-gold mb-0">
+                <div class="card bg-dark-card metric-card {% if m.levered_irr is not none and m.levered_irr >= 0.12 %}metric-positive{% elif m.levered_irr is not none and m.levered_irr >= 0.08 %}metric-warning{% else %}metric-negative{% endif %}">
+                    <div class="card-body text-center py-3">
+                        <small class="text-muted d-block mb-1" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;">Levered IRR</small>
+                        <div class="metric-big {% if m.levered_irr is not none and m.levered_irr >= 0.12 %}text-success{% elif m.levered_irr is not none and m.levered_irr >= 0.08 %}text-warning{% else %}text-danger{% endif %}">
                             {% if m.levered_irr is not none %}{{ "%.1f"|format(m.levered_irr * 100) }}%{% else %}N/A{% endif %}
-                        </h3>
+                        </div>
                         {% if m.after_tax_irr is not none %}
-                        <small class="text-muted">After-tax: {{ "%.1f"|format(m.after_tax_irr * 100) }}%</small>
+                        <div class="metric-sub">After-tax: {{ "%.1f"|format(m.after_tax_irr * 100) }}%</div>
                         {% endif %}
                     </div>
                 </div>
             </div>
             <div class="col-md-3 col-6">
-                <div class="card bg-dark-card metric-card">
-                    <div class="card-body text-center">
-                        <small class="text-muted">Equity Multiple</small>
-                        <h3 class="text-gold mb-0">{{ "%.2f"|format(m.equity_multiple) }}x</h3>
+                <div class="card bg-dark-card metric-card {% if m.equity_multiple is not none and m.equity_multiple >= 1.7 %}metric-positive{% elif m.equity_multiple is not none and m.equity_multiple >= 1.3 %}metric-warning{% else %}metric-negative{% endif %}">
+                    <div class="card-body text-center py-3">
+                        <small class="text-muted d-block mb-1" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;">Equity Multiple</small>
+                        <div class="metric-big text-gold">{{ "%.2f"|format(m.equity_multiple) }}x</div>
                         {% if m.after_tax_equity_multiple is not none %}
-                        <small class="text-muted">After-tax: {{ "%.2f"|format(m.after_tax_equity_multiple) }}x</small>
+                        <div class="metric-sub">After-tax: {{ "%.2f"|format(m.after_tax_equity_multiple) }}x</div>
                         {% endif %}
                     </div>
                 </div>
             </div>
             <div class="col-md-3 col-6">
-                <div class="card bg-dark-card metric-card">
-                    <div class="card-body text-center">
-                        <small class="text-muted">Cash-on-Cash (Yr 1)</small>
-                        <h3 class="text-gold mb-0">{{ "%.1f"|format(m.cash_on_cash_yr1 * 100) }}%</h3>
+                <div class="card bg-dark-card metric-card {% if m.cash_on_cash_yr1 is not none and m.cash_on_cash_yr1 >= 0.07 %}metric-positive{% elif m.cash_on_cash_yr1 is not none and m.cash_on_cash_yr1 >= 0.04 %}metric-warning{% else %}metric-negative{% endif %}">
+                    <div class="card-body text-center py-3">
+                        <small class="text-muted d-block mb-1" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;">Cash-on-Cash (Yr 1)</small>
+                        <div class="metric-big text-gold">{{ "%.1f"|format(m.cash_on_cash_yr1 * 100) }}%</div>
                         {% if m.cash_on_cash_yr1_after_tax is not none %}
-                        <small class="text-muted">After-tax: {{ "%.1f"|format(m.cash_on_cash_yr1_after_tax * 100) }}%</small>
+                        <div class="metric-sub">After-tax: {{ "%.1f"|format(m.cash_on_cash_yr1_after_tax * 100) }}%</div>
                         {% endif %}
                     </div>
                 </div>
             </div>
             <div class="col-md-3 col-6">
-                <div class="card bg-dark-card metric-card">
-                    <div class="card-body text-center">
-                        <small class="text-muted">DSCR (Yr 1)</small>
-                        <h3 class="{% if m.dscr_yr1 >= 1.25 %}text-success{% elif m.dscr_yr1 >= 1.0 %}text-warning{% else %}text-danger{% endif %} mb-0">
-                            {{ "%.2f"|format(m.dscr_yr1) }}x
-                        </h3>
+                <div class="card bg-dark-card metric-card {% if m.dscr_yr1 is not none and m.dscr_yr1 >= 1.25 %}metric-positive{% elif m.dscr_yr1 is not none and m.dscr_yr1 >= 1.0 %}metric-warning{% else %}metric-negative{% endif %}">
+                    <div class="card-body text-center py-3">
+                        <small class="text-muted d-block mb-1" style="font-size:0.72rem;text-transform:uppercase;letter-spacing:0.5px;">DSCR (Yr 1)</small>
+                        <div class="metric-big {% if m.dscr_yr1 is not none and m.dscr_yr1 >= 1.25 %}text-success{% elif m.dscr_yr1 is not none and m.dscr_yr1 >= 1.0 %}text-warning{% else %}text-danger{% endif %}">
+                            {% if m.dscr_yr1 is not none %}{{ "%.2f"|format(m.dscr_yr1) }}x{% else %}N/A{% endif %}
+                        </div>
+                        <div class="metric-sub">{% if m.dscr_yr1 is not none and m.dscr_yr1 >= 1.25 %}Healthy coverage{% elif m.dscr_yr1 is not none and m.dscr_yr1 >= 1.0 %}Thin coverage{% elif m.dscr_yr1 is not none %}Below breakeven{% else %}—{% endif %}</div>
                     </div>
                 </div>
             </div>
         </div>
 
         <!-- Secondary Metrics -->
+        <div class="section-divider">Additional Metrics</div>
         <div class="row g-3 mb-4">
             <div class="col-md-2 col-4">
                 <div class="card bg-dark-card"><div class="card-body text-center py-2">
@@ -193,6 +315,7 @@
         {% if ml_valuation and not ml_valuation.get('error') %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
+                <div class="card-header-accent"></div>
                 <h6 class="mb-0"><i class="bi bi-robot"></i> ML Property Valuation
                     <span class="badge bg-secondary ms-2">Synthetic Data</span>
                 </h6>
@@ -252,7 +375,8 @@
         {% if unit_mix and unit_mix.get('units') %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
-                <h6 class="mb-0"><i class="bi bi-grid-3x2-gap me-2"></i>Unit Mix Analysis</h6>
+                <div class="card-header-accent"></div>
+                <h6 class="mb-0"><i class="bi bi-grid-3x2-gap me-1"></i>Unit Mix Analysis</h6>
             </div>
             <div class="card-body">
                 <div class="table-responsive">
@@ -342,6 +466,7 @@
         </div>
         {% endif %}
 
+        <div id="section-market"></div>
         <!-- ========== RENTCAST MARKET DATA CARD ========== -->
         {% set rc = market_data.get('rentcast', {}) if market_data else {} %}
         {% if rc and rc.get('available') %}
@@ -350,9 +475,11 @@
         {% set rc_comps = rc.get('rental_comps', {}) %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy d-flex justify-content-between align-items-center">
+                <div class="d-flex align-items-center gap-2">
+                <div class="card-header-accent"></div>
                 <h6 class="mb-0"><i class="bi bi-house-check"></i> RentCast — Live Rental Market Data
                     <span class="badge bg-success ms-2">Real Data</span>
-                </h6>
+                </h6></div>
                 {% if rc_stats.get('zip_code') %}
                 <small class="text-muted">Zip: {{ rc_stats.zip_code }}</small>
                 {% endif %}
@@ -808,6 +935,7 @@
         {% if rent_prediction and not rent_prediction.get('error') %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
+                <div class="card-header-accent"></div>
                 <h6 class="mb-0"><i class="bi bi-graph-up-arrow"></i> Predictive Rent Growth Model
                     {% if m.used_variable_growth %}
                     <span class="badge bg-success ms-2">Integrated into Pro Forma</span>
@@ -877,6 +1005,7 @@
         {% if monte_carlo and not monte_carlo.get('error') %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
+                <div class="card-header-accent"></div>
                 <h6 class="mb-0"><i class="bi bi-dice-5"></i> Monte Carlo Simulation
                     <span class="badge bg-secondary ms-2">{{ "{:,}".format(monte_carlo.n_iterations) }} iterations</span>
                 </h6>
@@ -928,6 +1057,7 @@
         {% if backtest and not backtest.get('error') %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
+                <div class="card-header-accent"></div>
                 <h6 class="mb-0"><i class="bi bi-clipboard-data"></i> Model Backtest Validation
                     <span class="badge bg-{% if backtest.quality == 'STRONG' %}success{% elif backtest.quality == 'MODERATE' %}info{% elif backtest.quality == 'FAIR' %}warning{% else %}danger{% endif %} ms-2">{{ backtest.quality }}</span>
                 </h6>
@@ -976,13 +1106,13 @@
         <div class="row g-3 mb-4">
             <div class="col-md-6">
                 <div class="card bg-dark-card">
-                    <div class="card-header bg-navy"><h6 class="mb-0">NOI Growth &amp; Value-Add Trajectory</h6></div>
+                    <div class="card-header bg-navy"><div class="card-header-accent"></div><h6 class="mb-0">NOI Growth &amp; Value-Add Trajectory</h6></div>
                     <div class="card-body"><canvas id="noiChart"></canvas></div>
                 </div>
             </div>
             <div class="col-md-6">
                 <div class="card bg-dark-card">
-                    <div class="card-header bg-navy"><h6 class="mb-0">Annual Cash Flow (Before &amp; After Tax)</h6></div>
+                    <div class="card-header bg-navy"><div class="card-header-accent"></div><h6 class="mb-0">Annual Cash Flow (Before &amp; After Tax)</h6></div>
                     <div class="card-body"><canvas id="cashFlowChart"></canvas></div>
                 </div>
             </div>
@@ -992,7 +1122,7 @@
         <div class="row g-3 mb-4">
             <div class="col-md-6">
                 <div class="card bg-dark-card">
-                    <div class="card-header bg-navy"><h6 class="mb-0">Sources &amp; Uses</h6></div>
+                    <div class="card-header bg-navy"><div class="card-header-accent"></div><h6 class="mb-0">Sources &amp; Uses</h6></div>
                     <div class="card-body">
                         <table class="table table-dark table-sm">
                             <thead><tr><th>Sources</th><th class="text-end">Amount</th></tr></thead>
@@ -1044,8 +1174,10 @@
         </div>
 
         <!-- Pro Forma Table (Fix #9: includes tax rows) -->
+        <div id="section-proforma"></div>
+        <div class="section-divider">10-Year Pro Forma</div>
         <div class="card bg-dark-card mb-4">
-            <div class="card-header bg-navy"><h6 class="mb-0">10-Year Pro Forma</h6></div>
+            <div class="card-header bg-navy"><div class="card-header-accent"></div><h6 class="mb-0">10-Year Pro Forma</h6></div>
             <div class="card-body table-responsive">
                 <table class="table table-dark table-sm table-striped">
                     <thead>
@@ -1080,7 +1212,7 @@
         <!-- ========== SENSITIVITY TABLES (Fix #7) ========== -->
         {% if sensitivity %}
         <div class="card bg-dark-card mb-4">
-            <div class="card-header bg-navy"><h6 class="mb-0"><i class="bi bi-sliders2"></i> Sensitivity Analysis</h6></div>
+            <div class="card-header bg-navy"><div class="card-header-accent"></div><h6 class="mb-0"><i class="bi bi-sliders2"></i> Sensitivity Analysis</h6></div>
             <div class="card-body">
                 <div class="row g-4">
                     <!-- Exit Cap Sensitivity -->
@@ -1184,6 +1316,7 @@
         <!-- ========== INTERACTIVE WHAT-IF ANALYSIS ========== -->
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
+                <div class="card-header-accent"></div>
                 <h6 class="mb-0"><i class="bi bi-sliders"></i> Interactive What-If Analysis
                     <span class="badge bg-info ms-2">Live</span>
                 </h6>
@@ -1256,7 +1389,8 @@
         {% set sc_bear = scenarios.bear %}
         <div class="card bg-dark-card mb-4">
             <div class="card-header bg-navy">
-                <h6 class="mb-0"><i class="bi bi-sliders2 me-2"></i>Scenario Comparison — Base / Bull / Bear</h6>
+                <div class="card-header-accent"></div>
+                <h6 class="mb-0"><i class="bi bi-sliders2 me-1"></i>Scenario Comparison — Base / Bull / Bear</h6>
             </div>
             <div class="card-body">
                 <!-- Headline IRR boxes -->
@@ -1426,18 +1560,25 @@
         {% endif %}
 
         <!-- AI Investment Memo -->
-        <div class="card bg-dark-card mb-4" id="ai-memo-card">
-            <div class="card-header bg-navy d-flex justify-content-between align-items-center">
-                <h6 class="mb-0"><i class="bi bi-robot me-2"></i>AI-Generated Investment Narrative</h6>
-                <button class="btn btn-outline-light btn-sm" id="regenMemoBtn" onclick="regenerateMemo()">
-                    <i class="bi bi-arrow-clockwise"></i> Regenerate
+        <div id="section-memo"></div>
+        <div class="section-divider">AI Investment Memo</div>
+        <div class="card mb-4" id="ai-memo-card" style="background:linear-gradient(145deg,#0c1929 0%,#0a1f3a 100%);border:1px solid rgba(200,169,81,0.25);border-radius:14px;box-shadow:0 4px 24px rgba(0,0,0,0.4);">
+            <div class="card-header d-flex justify-content-between align-items-center" style="background:linear-gradient(90deg,#152440 0%,#0d1b33 100%);border-bottom:1px solid rgba(200,169,81,0.2);border-radius:13px 13px 0 0;padding:0.9rem 1.2rem;">
+                <div class="d-flex align-items-center gap-2">
+                    <div style="width:3px;height:20px;background:var(--gradient-gold);border-radius:2px;flex-shrink:0;"></div>
+                    <h6 class="mb-0 fw-600"><i class="bi bi-pencil-square me-2 text-gold"></i>AI-Generated Investment Narrative
+                        <span class="badge ms-2" style="background:rgba(200,169,81,0.15);color:var(--gold);border:1px solid rgba(200,169,81,0.3);font-size:0.65rem;">GPT-4o</span>
+                    </h6>
+                </div>
+                <button class="btn btn-outline-gold btn-sm" id="regenMemoBtn" onclick="regenerateMemo()" style="border-radius:20px;font-size:0.78rem;">
+                    <i class="bi bi-arrow-clockwise me-1"></i>Regenerate
                 </button>
             </div>
             <div class="card-body" id="ai-memo-body">
                 {% if ai_memo and not ai_memo.get('error') and ai_memo.get('executive_summary') %}
                 <div class="alert alert-info py-2 mb-3" style="font-size:0.82rem;">
                     <i class="bi bi-info-circle me-1"></i>
-                    Written by <strong>claude-sonnet-4-6</strong> using only verified deal data and live market APIs.
+                    Written by <strong>GPT-4o</strong> using only verified deal data and live market APIs.
                     No figures were fabricated.
                 </div>
 
@@ -1491,26 +1632,30 @@
         </div>
 
         <!-- Download Buttons -->
+        <div id="section-downloads"></div>
+        <div class="section-divider">Download Deliverables</div>
         <div class="card bg-dark-card mb-4">
-            <div class="card-header bg-navy"><h6 class="mb-0">Download Deliverables</h6></div>
-            <div class="card-body text-center">
+            <div class="card-body">
                 <div class="row g-3 justify-content-center">
                     <div class="col-md-4">
-                        <a href="/api/download/{{ job_id }}/file/excel" class="btn btn-success btn-lg w-100">
-                            <i class="bi bi-file-earmark-spreadsheet fs-4"></i><br>
-                            Excel Workbook
+                        <a href="/api/download/{{ job_id }}/file/excel" class="btn w-100 py-3 d-flex flex-column align-items-center gap-1" style="background:rgba(25,135,84,0.12);border:1px solid rgba(25,135,84,0.35);color:#4ade80;border-radius:12px;transition:all 0.2s;" onmouseover="this.style.background='rgba(25,135,84,0.22)'" onmouseout="this.style.background='rgba(25,135,84,0.12)'">
+                            <i class="bi bi-file-earmark-spreadsheet" style="font-size:1.8rem;"></i>
+                            <span class="fw-600">Excel Workbook</span>
+                            <small style="opacity:0.7;font-size:0.72rem;">Full model + pro forma</small>
                         </a>
                     </div>
                     <div class="col-md-4">
-                        <a href="/api/download/{{ job_id }}/file/word" class="btn btn-primary btn-lg w-100">
-                            <i class="bi bi-file-earmark-word fs-4"></i><br>
-                            Investment Memo
+                        <a href="/api/download/{{ job_id }}/file/word" class="btn w-100 py-3 d-flex flex-column align-items-center gap-1" style="background:rgba(13,110,253,0.12);border:1px solid rgba(13,110,253,0.35);color:#60a5fa;border-radius:12px;transition:all 0.2s;" onmouseover="this.style.background='rgba(13,110,253,0.22)'" onmouseout="this.style.background='rgba(13,110,253,0.12)'">
+                            <i class="bi bi-file-earmark-word" style="font-size:1.8rem;"></i>
+                            <span class="fw-600">Word Investment Memo</span>
+                            <small style="opacity:0.7;font-size:0.72rem;">AI narrative + exhibits</small>
                         </a>
                     </div>
                     <div class="col-md-4">
-                        <a href="/api/download/{{ job_id }}/file/pdf" class="btn btn-danger btn-lg w-100">
-                            <i class="bi bi-file-earmark-pdf fs-4"></i><br>
-                            PDF Report
+                        <a href="/api/download/{{ job_id }}/file/pdf" class="btn w-100 py-3 d-flex flex-column align-items-center gap-1" style="background:rgba(220,53,69,0.12);border:1px solid rgba(220,53,69,0.35);color:#f87171;border-radius:12px;transition:all 0.2s;" onmouseover="this.style.background='rgba(220,53,69,0.22)'" onmouseout="this.style.background='rgba(220,53,69,0.12)'">
+                            <i class="bi bi-file-earmark-pdf" style="font-size:1.8rem;"></i>
+                            <span class="fw-600">PDF Report</span>
+                            <small style="opacity:0.7;font-size:0.72rem;">Presentation-ready</small>
                         </a>
                     </div>
                 </div>
@@ -1534,7 +1679,7 @@ function regenerateMemo() {
     const body = document.getElementById('ai-memo-body');
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span> Generating...';
-    body.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border mb-3"></div><p>Claude is writing your investment narrative...</p></div>';
+    body.innerHTML = '<div class="text-center py-5 text-muted"><div class="spinner-border mb-3"></div><p>GPT-4o is writing your investment narrative...</p></div>';
 
     fetch('/api/generate_memo/{{ job_id }}', { method: 'POST' })
         .then(r => r.json())

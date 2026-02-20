@@ -1,16 +1,45 @@
 {% extends "base.html" %}
-{% block title %}Processing...{% endblock %}
+{% block title %}Analyzing Deal...{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
-    <div class="col-md-6 text-center py-5">
-        <div class="spinner-border text-gold mb-3" style="width: 3rem; height: 3rem;" role="status"></div>
-        <h3>Running Analysis</h3>
-        <p class="text-muted" id="statusText">Initializing...</p>
-        <div class="progress mt-3" style="height: 6px;">
-            <div class="progress-bar bg-gold" id="progressBar" style="width: 0%"></div>
+    <div class="col-md-7 col-lg-5 py-4">
+
+        <!-- Animated spinner -->
+        <div class="text-center mb-4">
+            <div style="position:relative;width:72px;height:72px;margin:0 auto 1.25rem;">
+                <div class="processing-ring"></div>
+                <div class="processing-ring-inner"></div>
+                <i class="bi bi-buildings-fill" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:1.4rem;color:var(--gold);"></i>
+            </div>
+            <h4 class="fw-bold mb-1">Running Analysis</h4>
+            <p class="text-muted mb-0" style="font-size:0.85rem;" id="statusText">Initializing pipeline...</p>
         </div>
+
+        <!-- Progress bar -->
+        <div class="progress mb-4" style="height:6px;border-radius:6px;">
+            <div class="progress-bar bg-gold" id="progressBar" style="width:0%;transition:width 0.6s ease;"></div>
+        </div>
+
+        <!-- Step list -->
+        <div id="stepList">
+            <div class="processing-step" id="step-0"><i class="bi bi-check2-circle me-1"></i> Validating inputs</div>
+            <div class="processing-step" id="step-1"><i class="bi bi-cloud-download me-1"></i> Fetching market data (FRED / Census)</div>
+            <div class="processing-step" id="step-2"><i class="bi bi-calculator me-1"></i> Building financial model</div>
+            <div class="processing-step" id="step-3"><i class="bi bi-robot me-1"></i> Running ML property valuation</div>
+            <div class="processing-step" id="step-4"><i class="bi bi-file-earmark-text me-1"></i> Analyzing lease documents (NLP)</div>
+            <div class="processing-step" id="step-5"><i class="bi bi-graph-up-arrow me-1"></i> Predicting rent growth</div>
+            <div class="processing-step" id="step-6"><i class="bi bi-clock-history me-1"></i> Running backtest validation</div>
+            <div class="processing-step" id="step-7"><i class="bi bi-dice-3 me-1"></i> Monte Carlo simulation (1,000 runs)</div>
+            <div class="processing-step" id="step-8"><i class="bi bi-pencil-square me-1"></i> Generating AI investment memo</div>
+            <div class="processing-step" id="step-9"><i class="bi bi-file-earmark-spreadsheet me-1"></i> Building Excel workbook</div>
+            <div class="processing-step" id="step-10"><i class="bi bi-file-earmark-word me-1"></i> Compiling Word report</div>
+            <div class="processing-step" id="step-11"><i class="bi bi-filetype-pdf me-1"></i> Generating PDF report</div>
+            <div class="processing-step" id="step-12"><i class="bi bi-check-circle-fill me-1"></i> Finalizing results</div>
+        </div>
+
     </div>
 </div>
+
 <script>
 (function() {
     const jobId = "{{ job_id }}";
@@ -19,21 +48,29 @@
         { pct: 15, text: "Fetching FRED / Census / BLS data..." },
         { pct: 30, text: "Building financial model..." },
         { pct: 42, text: "Running ML property valuation..." },
-        { pct: 54, text: "Analyzing lease document (NLP)..." },
+        { pct: 54, text: "Analyzing lease documents (NLP)..." },
         { pct: 60, text: "Predicting rent growth..." },
         { pct: 68, text: "Running backtest validation..." },
-        { pct: 74, text: "Running Monte Carlo simulation..." },
-        { pct: 80, text: "Writing AI investment narrative (Claude)..." },
-        { pct: 86, text: "Generating Excel workbook..." },
-        { pct: 91, text: "Generating Word investment memo..." },
+        { pct: 74, text: "Monte Carlo simulation (1,000 runs)..." },
+        { pct: 80, text: "Generating AI investment memo..." },
+        { pct: 86, text: "Building Excel workbook..." },
+        { pct: 91, text: "Compiling Word report..." },
         { pct: 93, text: "Generating PDF report..." },
         { pct: 97, text: "Finalizing results..." },
     ];
+
     let step = 0;
     const interval = setInterval(() => {
         if (step < steps.length) {
             document.getElementById('statusText').textContent = steps[step].text;
             document.getElementById('progressBar').style.width = steps[step].pct + '%';
+            // Update step visuals
+            if (step > 0) {
+                const prev = document.getElementById('step-' + (step - 1));
+                if (prev) prev.classList.replace('active', 'done');
+            }
+            const cur = document.getElementById('step-' + step);
+            if (cur) cur.classList.add('active');
             step++;
         }
     }, 1500);
@@ -45,8 +82,11 @@
                 if (data.status === 'complete') {
                     clearInterval(interval);
                     document.getElementById('progressBar').style.width = '100%';
-                    document.getElementById('statusText').textContent = 'Complete! Redirecting...';
-                    setTimeout(() => { window.location.href = '/results/' + jobId; }, 500);
+                    document.getElementById('statusText').textContent = 'Analysis complete — loading results...';
+                    // Mark last step done
+                    const last = document.getElementById('step-' + (step - 1));
+                    if (last) { last.classList.remove('active'); last.classList.add('done'); }
+                    setTimeout(() => { window.location.href = '/results/' + jobId; }, 600);
                 } else if (data.status === 'error') {
                     clearInterval(interval);
                     document.getElementById('statusText').textContent = 'Error: ' + (data.message || 'Unknown error');
