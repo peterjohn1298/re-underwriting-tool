@@ -161,20 +161,27 @@ def _build_chat_system_prompt() -> str:
     if rc_avm.get("available") and rc_avm.get("estimated_rent"):
         lines.append(f"RentCast AVM: ${rc_avm['estimated_rent']:,.0f}/mo")
 
-    if ml and ml.get("available") and not ml.get("error"):
+    if ml and ml.get("assessment") and not ml.get("error"):
         lines += [
             "", "---------------------------------------", "ML VALUATION", "---------------------------------------",
             f"Assessment: {ml.get('assessment')}",
-            f"Predicted Value: {dollar(ml.get('predicted_value'))}",
+            f"Predicted Total Value: {dollar(ml.get('predicted_total_value'))}",
+            f"Actual Price/Unit: {dollar(ml.get('actual_price_per_unit'))}",
             f"Premium/Discount: {ml.get('premium_discount_pct', 0):+.1f}%",
         ]
 
-    if mc and mc.get("irr_mean") is not None:
+    if mc and mc.get("mean_irr") is not None:
+        pcts_mc = mc.get("percentiles", {})
         probs = mc.get("probabilities", {})
+        p10 = pcts_mc.get("P10")
+        p50 = pcts_mc.get("P50 (Median)")
+        p90 = pcts_mc.get("P90")
         lines += [
             "", "---------------------------------------", "MONTE CARLO (1,000 simulations)", "---------------------------------------",
-            f"IRR: P10={pct(mc.get('irr_p10'))}  P50={pct(mc.get('irr_p50'))}  P90={pct(mc.get('irr_p90'))}",
-            f"Mean IRR: {pct(mc.get('irr_mean'))}",
+            f"IRR: P10={f'{p10:.1f}%' if p10 is not None else 'N/A'}  "
+            f"P50={f'{p50:.1f}%' if p50 is not None else 'N/A'}  "
+            f"P90={f'{p90:.1f}%' if p90 is not None else 'N/A'}",
+            f"Mean IRR: {f\"{mc.get('mean_irr'):.1f}%\" if mc.get('mean_irr') is not None else 'N/A'}",
         ]
         for label, val in probs.items():
             lines.append(f"  {label}: {val:.1f}%")
@@ -212,17 +219,17 @@ def _build_chat_system_prompt() -> str:
 
 
 # ── API key resolution ────────────────────────────────────────────────────────
-def _get_openai_key() -> str:
+def _get_anthropic_key() -> str:
     try:
-        k = st.secrets.get("OPENAI_API_KEY", "")
+        k = st.secrets.get("ANTHROPIC_API_KEY", "")
     except Exception:
         k = ""
-    return k or os.environ.get("OPENAI_API_KEY", "")
+    return k or os.environ.get("ANTHROPIC_API_KEY", "")
 
 
-openai_key = _get_openai_key()
-if not openai_key:
-    st.warning("No OpenAI API key configured. Add OPENAI_API_KEY to your .env file or Streamlit secrets.")
+anthropic_key = _get_anthropic_key()
+if not anthropic_key:
+    st.warning("No Anthropic API key configured. Add ANTHROPIC_API_KEY to your Streamlit secrets.")
 
 
 # ── Chat UI ───────────────────────────────────────────────────────────────────
@@ -236,31 +243,32 @@ for msg in st.session_state["chat_history"]:
 
 # Chat input
 prompt = st.chat_input("Ask anything about this deal... (e.g. 'What is the main risk?')")
-if prompt and openai_key:
+if prompt and anthropic_key:
     # Show user message
     st.session_state["chat_history"].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Build messages for API
+    # Build conversation history (last 10 turns, user/assistant only)
     system_prompt = _build_chat_system_prompt()
-    messages = [{"role": "system", "content": system_prompt}]
+    messages = []
     for h in st.session_state["chat_history"][-10:]:
         if h["role"] in ("user", "assistant"):
             messages.append({"role": h["role"], "content": h["content"]})
 
-    # Call OpenAI
+    # Call Claude (Anthropic)
     with st.chat_message("assistant"):
         with st.spinner("Analyzing..."):
             try:
-                from openai import OpenAI
-                client = OpenAI(api_key=openai_key)
-                response = client.chat.completions.create(
-                    model="gpt-4o",
+                import anthropic
+                client = anthropic.Anthropic(api_key=anthropic_key)
+                response = client.messages.create(
+                    model="claude-opus-4-6",
                     max_tokens=1024,
+                    system=system_prompt,
                     messages=messages,
                 )
-                reply = response.choices[0].message.content
+                reply = response.content[0].text
                 st.markdown(reply)
                 st.session_state["chat_history"].append({"role": "assistant", "content": reply})
             except Exception as e:
@@ -268,8 +276,8 @@ if prompt and openai_key:
                 st.error(err_msg)
                 st.session_state["chat_history"].append({"role": "assistant", "content": err_msg})
 
-elif prompt and not openai_key:
-    st.error("OpenAI API key required for chat. Please configure OPENAI_API_KEY.")
+elif prompt and not anthropic_key:
+    st.error("Anthropic API key required for chat. Please configure ANTHROPIC_API_KEY.")
 
 # Clear history button
 if st.session_state["chat_history"]:

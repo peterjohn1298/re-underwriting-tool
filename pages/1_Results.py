@@ -646,44 +646,64 @@ with tabs[6]:
     st.subheader("Base / Bull / Bear Scenario Comparison")
     if scenarios and not scenarios.get("error"):
         import pandas as pd
-        sc_rows = []
-        for scenario_name, sc_data in scenarios.items():
-            if isinstance(sc_data, dict):
-                m = sc_data.get("metrics", {})
-                sc_rows.append({
-                    "Scenario":        scenario_name,
-                    "Levered IRR":     _pct(m.get("levered_irr")),
-                    "Equity Multiple": _x(m.get("equity_multiple")),
-                    "Cash-on-Cash Y1": _pct(m.get("cash_on_cash_yr1")),
-                    "DSCR Y1":         _fmt(m.get("dscr_yr1")),
-                    "Exit Cap Rate":   _pct(m.get("exit_cap_rate")),
-                })
-        if sc_rows:
-            sc_df = pd.DataFrame(sc_rows)
-            st.dataframe(sc_df, use_container_width=True, hide_index=True)
 
-        # NOI growth chart
+        # Use pre-built comparison table (all metrics, pre-formatted)
+        comparison_table = scenarios.get("comparison_table", [])
+        if comparison_table:
+            ct_df = pd.DataFrame(comparison_table).rename(columns={
+                "metric": "Metric",
+                "base":   "Base",
+                "bull":   "Bull ↑",
+                "bear":   "Bear ↓",
+            })
+            st.dataframe(ct_df, use_container_width=True, hide_index=True)
+        else:
+            # Fallback: build from individual flat scenario dicts (base/bull/bear)
+            sc_rows = []
+            for label in ["base", "bull", "bear"]:
+                sc = scenarios.get(label, {})
+                if sc and not sc.get("error"):
+                    sc_rows.append({
+                        "Scenario":        sc.get("label", label.title()),
+                        "Levered IRR":     _pct(sc.get("levered_irr")),
+                        "Equity Multiple": _x(sc.get("equity_multiple")),
+                        "Cash-on-Cash Y1": _pct(sc.get("cash_on_cash_yr1")),
+                        "DSCR Y1":         _fmt(sc.get("dscr_yr1")),
+                        "Exit Cap Rate":   _pct(sc.get("exit_cap_rate")),
+                    })
+            if sc_rows:
+                st.dataframe(pd.DataFrame(sc_rows), use_container_width=True, hide_index=True)
+
+        # IRR bar chart across scenarios
         try:
             import plotly.graph_objects as go
-            fig = go.Figure()
-            colors = {"Base": "#C9A84C", "Bull": "#3fb950", "Bear": "#f85149"}
-            for scenario_name, sc_data in scenarios.items():
-                if isinstance(sc_data, dict):
-                    nois = sc_data.get("annual_nois", [])
-                    if nois:
-                        fig.add_trace(go.Scatter(
-                            x=list(range(1, len(nois) + 1)),
-                            y=nois,
-                            mode="lines+markers",
-                            name=scenario_name,
-                            line=dict(color=colors.get(scenario_name, "#8B949E"), width=2),
-                        ))
-            if fig.data:
+            base_sc = scenarios.get("base", {})
+            bull_sc = scenarios.get("bull", {})
+            bear_sc = scenarios.get("bear", {})
+            irr_vals = [
+                (base_sc.get("levered_irr") or 0) * 100,
+                (bull_sc.get("levered_irr") or 0) * 100,
+                (bear_sc.get("levered_irr") or 0) * 100,
+            ]
+            em_vals = [
+                base_sc.get("equity_multiple") or 0,
+                bull_sc.get("equity_multiple") or 0,
+                bear_sc.get("equity_multiple") or 0,
+            ]
+            if any(irr_vals):
+                from plotly.subplots import make_subplots
+                fig = make_subplots(rows=1, cols=2,
+                                    subplot_titles=("Levered IRR (%)", "Equity Multiple (x)"))
+                colors = ["#C9A84C", "#3fb950", "#f85149"]
+                labels = ["Base", "Bull", "Bear"]
+                fig.add_trace(go.Bar(x=labels, y=irr_vals, marker_color=colors,
+                                     name="IRR"), row=1, col=1)
+                fig.add_trace(go.Bar(x=labels, y=em_vals, marker_color=colors,
+                                     showlegend=False, name="EM"), row=1, col=2)
                 fig.update_layout(
-                    title="NOI Growth by Scenario",
-                    xaxis_title="Year", yaxis_title="NOI ($)",
+                    title="Scenario Returns Comparison",
                     paper_bgcolor="#0D1117", plot_bgcolor="#161B22",
-                    font_color="#E6EDF3",
+                    font_color="#E6EDF3", showlegend=False,
                 )
                 st.plotly_chart(fig, use_container_width=True)
         except ImportError:
