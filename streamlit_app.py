@@ -278,6 +278,12 @@ with col_demo:
     if st.button("📋 Load Demo Deal", use_container_width=True,
                  help="Pre-fill with a sample Austin, TX 100-unit Class B deal"):
         st.session_state["demo"] = DEMO_VALUES.copy()
+        # Unit mix widgets have explicit keys — must set session_state directly
+        # so Streamlit shows the demo values (value= param is ignored for keyed widgets)
+        for _ut in ["Studio", "1BR", "2BR", "3BR"]:
+            st.session_state[f"um_count_{_ut}"]       = DEMO_VALUES[f"um_count_{_ut}"]
+            st.session_state[f"um_rent_{_ut}"]         = DEMO_VALUES[f"um_rent_{_ut}"]
+            st.session_state[f"um_market_rent_{_ut}"]  = DEMO_VALUES[f"um_market_rent_{_ut}"]
         st.rerun()
 
 if st.session_state.get("demo"):
