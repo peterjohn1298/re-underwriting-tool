@@ -1486,4 +1486,261 @@ document.addEventListener('DOMContentLoaded', function() {
     });
 });
 </script>
+
+<!-- ========== AI DEAL CHAT WIDGET ========== -->
+<style>
+#chat-widget {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    z-index: 1050;
+    font-size: 0.875rem;
+}
+#chat-bubble {
+    width: 56px;
+    height: 56px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #1a6b4a, #0d3b6e);
+    border: none;
+    box-shadow: 0 4px 16px rgba(0,0,0,0.4);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #fff;
+    font-size: 1.4rem;
+    transition: transform 0.15s;
+}
+#chat-bubble:hover { transform: scale(1.08); }
+#chat-panel {
+    display: none;
+    width: 380px;
+    max-height: 560px;
+    background: #1a1a2e;
+    border: 1px solid #2d4a6e;
+    border-radius: 16px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+    flex-direction: column;
+    overflow: hidden;
+}
+#chat-panel.open { display: flex; }
+#chat-header {
+    background: linear-gradient(135deg, #1a6b4a, #0d3b6e);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-radius: 16px 16px 0 0;
+}
+#chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-height: 200px;
+    max-height: 360px;
+}
+.chat-msg { max-width: 88%; padding: 8px 12px; border-radius: 12px; line-height: 1.4; }
+.chat-msg.user { background: #0d3b6e; color: #e8f0fe; align-self: flex-end; border-bottom-right-radius: 3px; }
+.chat-msg.assistant { background: #1e3a2f; color: #d4edda; align-self: flex-start; border-bottom-left-radius: 3px; }
+.chat-msg.system-note { background: transparent; color: #6c757d; font-style: italic; font-size: 0.8rem; align-self: center; }
+#chat-input-row {
+    padding: 10px 12px;
+    border-top: 1px solid #2d4a6e;
+    display: flex;
+    gap: 8px;
+    background: #12122a;
+    border-radius: 0 0 16px 16px;
+}
+#chat-input {
+    flex: 1;
+    background: #1a1a2e;
+    border: 1px solid #2d4a6e;
+    color: #e0e0e0;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 0.85rem;
+    resize: none;
+    height: 38px;
+    max-height: 80px;
+}
+#chat-input:focus { outline: none; border-color: #4a9b6e; }
+#chat-send {
+    background: #1a6b4a;
+    border: none;
+    color: white;
+    border-radius: 8px;
+    padding: 6px 12px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: background 0.15s;
+}
+#chat-send:hover { background: #22915f; }
+#chat-send:disabled { background: #333; cursor: default; }
+.chat-suggestions { display: flex; flex-wrap: wrap; gap: 5px; padding: 6px 12px; border-top: 1px solid #2d4a6e; background: #12122a; }
+.chat-chip {
+    background: #0d3b6e;
+    color: #9dc8ff;
+    border: 1px solid #1a5596;
+    border-radius: 20px;
+    padding: 3px 10px;
+    font-size: 0.75rem;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s;
+}
+.chat-chip:hover { background: #1a5596; color: #fff; }
+.typing-dots span {
+    display: inline-block;
+    width: 6px; height: 6px;
+    background: #4a9b6e;
+    border-radius: 50%;
+    margin: 0 2px;
+    animation: bounce 1.2s infinite;
+}
+.typing-dots span:nth-child(2) { animation-delay: 0.2s; }
+.typing-dots span:nth-child(3) { animation-delay: 0.4s; }
+@keyframes bounce {
+    0%, 60%, 100% { transform: translateY(0); }
+    30% { transform: translateY(-5px); }
+}
+</style>
+
+<div id="chat-widget">
+    <div id="chat-panel">
+        <div id="chat-header">
+            <div>
+                <i class="bi bi-robot me-2"></i>
+                <strong>Deal Assistant</strong>
+                <small class="d-block text-white-50" style="font-size:0.7rem">Powered by Claude · Grounded in deal data</small>
+            </div>
+            <button onclick="toggleChat()" style="background:none;border:none;color:white;font-size:1.1rem;cursor:pointer;">
+                <i class="bi bi-x-lg"></i>
+            </button>
+        </div>
+        <div id="chat-messages">
+            <div class="chat-msg system-note">
+                Ask anything about this deal. I have full access to the pro forma,
+                market data, ML valuation, and Monte Carlo results.
+            </div>
+        </div>
+        <div class="chat-suggestions" id="chat-suggestions">
+            <span class="chat-chip" onclick="askChip(this)">What's the main risk?</span>
+            <span class="chat-chip" onclick="askChip(this)">How does rent compare to HUD FMR?</span>
+            <span class="chat-chip" onclick="askChip(this)">Is the DSCR healthy?</span>
+            <span class="chat-chip" onclick="askChip(this)">Summarise this deal in 3 bullets</span>
+            <span class="chat-chip" onclick="askChip(this)">What does Monte Carlo say?</span>
+            <span class="chat-chip" onclick="askChip(this)">What drives the IRR here?</span>
+        </div>
+        <div id="chat-input-row">
+            <textarea id="chat-input" placeholder="Ask about this deal…" rows="1"
+                      onkeydown="handleKey(event)"></textarea>
+            <button id="chat-send" onclick="sendMessage()">
+                <i class="bi bi-send-fill"></i>
+            </button>
+        </div>
+    </div>
+    <button id="chat-bubble" onclick="toggleChat()" title="Ask the Deal Assistant">
+        <i class="bi bi-robot"></i>
+    </button>
+</div>
+
+<script>
+(function() {
+    const JOB_ID = "{{ job_id }}";
+    let chatHistory = [];
+    let panelOpen = false;
+
+    window.toggleChat = function() {
+        panelOpen = !panelOpen;
+        const panel = document.getElementById('chat-panel');
+        const bubble = document.getElementById('chat-bubble');
+        panel.classList.toggle('open', panelOpen);
+        bubble.style.display = panelOpen ? 'none' : 'flex';
+        if (panelOpen) document.getElementById('chat-input').focus();
+    };
+
+    window.handleKey = function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    };
+
+    window.askChip = function(el) {
+        document.getElementById('chat-input').value = el.textContent;
+        sendMessage();
+    };
+
+    window.sendMessage = async function() {
+        const input = document.getElementById('chat-input');
+        const msg = input.value.trim();
+        if (!msg) return;
+
+        input.value = '';
+        appendMessage('user', msg);
+
+        // Hide suggestions after first real message
+        document.getElementById('chat-suggestions').style.display = 'none';
+
+        const sendBtn = document.getElementById('chat-send');
+        sendBtn.disabled = true;
+
+        // Typing indicator
+        const typingId = 'typing-' + Date.now();
+        appendRaw(typingId, `
+            <div id="${typingId}" class="chat-msg assistant">
+                <div class="typing-dots">
+                    <span></span><span></span><span></span>
+                </div>
+            </div>`);
+
+        try {
+            const resp = await fetch(`/api/chat/${JOB_ID}`, {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ message: msg, history: chatHistory })
+            });
+            const data = await resp.json();
+
+            document.getElementById(typingId)?.remove();
+
+            if (data.error) {
+                appendMessage('system-note', '⚠ ' + data.error);
+            } else {
+                chatHistory.push({role: 'user', content: msg});
+                chatHistory.push({role: 'assistant', content: data.response});
+                appendMessage('assistant', data.response);
+            }
+        } catch (err) {
+            document.getElementById(typingId)?.remove();
+            appendMessage('system-note', '⚠ Network error. Please try again.');
+        } finally {
+            sendBtn.disabled = false;
+            input.focus();
+        }
+    };
+
+    function appendMessage(role, text) {
+        const msgs = document.getElementById('chat-messages');
+        const div = document.createElement('div');
+        div.className = `chat-msg ${role}`;
+        // Render newlines and basic markdown-like bold
+        div.innerHTML = text
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+            .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+            .replace(/\n/g, '<br>');
+        msgs.appendChild(div);
+        msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    function appendRaw(id, html) {
+        const msgs = document.getElementById('chat-messages');
+        msgs.insertAdjacentHTML('beforeend', html);
+        msgs.scrollTop = msgs.scrollHeight;
+    }
+})();
+</script>
 {% endblock %}

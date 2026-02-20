@@ -6,7 +6,7 @@ import threading
 import logging
 from flask import Flask, render_template, request, jsonify, send_file
 
-from config import OUTPUT_DIR, UPLOAD_DIR, PORT, DEBUG, SECRET_KEY
+from config import OUTPUT_DIR, UPLOAD_DIR, PORT, DEBUG, SECRET_KEY, ANTHROPIC_API_KEY
 from models.assumptions import DealInputs, derive_assumptions
 from models.financial_model import build_pro_forma
 from services.market_research import run_full_research
@@ -666,6 +666,295 @@ def whatif(job_id):
         })
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+
+def _build_chat_system_prompt(job: dict) -> str:
+    """Build a grounded system prompt for the deal chat interface.
+
+    Extracts all computed results from the job and structures them as
+    factual context for Claude. Claude must answer only from this data.
+    """
+    deal = job.get("deal")
+    pf = job.get("pro_forma", {})
+    metrics = pf.get("metrics", {})
+    reversion = pf.get("reversion", {})
+    pro_forma_rows = pf.get("pro_forma", [])
+    market = job.get("market_data", {})
+    ml = job.get("ml_valuation", {})
+    mc = job.get("monte_carlo", {})
+    rec = job.get("recommendation", {})
+    lease = job.get("lease_analysis", {})
+
+    def pct(v):
+        return f"{v*100:.1f}%" if v is not None else "N/A"
+
+    def dollar(v):
+        return f"${v:,.0f}" if v is not None else "N/A"
+
+    def fmt(v, decimals=2):
+        return f"{v:.{decimals}f}" if v is not None else "N/A"
+
+    # --- Deal basics ---
+    lines = [
+        "You are an expert real estate investment analyst and deal assistant.",
+        "You have full access to the underwriting results for the following deal.",
+        "Answer all questions using ONLY the data provided below — never fabricate numbers.",
+        "Be concise, precise, and quantitative. Flag uncertainty where it exists.",
+        "",
+        "---------------------------------------",
+        "DEAL OVERVIEW",
+        "---------------------------------------",
+    ]
+
+    if deal:
+        lines += [
+            f"Property Type: {deal.property_type}",
+            f"Address: {deal.address}",
+            f"Purchase Price: {dollar(deal.purchase_price)}",
+            f"Total Units: {deal.total_units}",
+            f"In-Place Rent: {dollar(deal.in_place_rent)}/unit/month",
+            f"Occupancy: {pct(deal.occupancy)}",
+            f"Hold Period: {deal.hold_period_years} years",
+            f"LTV: {pct(deal.ltv)}",
+            f"Interest Rate: {pct(deal.interest_rate)}",
+            f"Revenue Growth Rate: {pct(deal.revenue_growth_rate)}",
+        ]
+
+    # --- Key metrics ---
+    lines += [
+        "",
+        "---------------------------------------",
+        "KEY FINANCIAL METRICS",
+        "---------------------------------------",
+        f"Levered IRR: {pct(metrics.get('levered_irr'))}",
+        f"Unlevered IRR: {pct(metrics.get('unlevered_irr'))}",
+        f"After-Tax IRR: {pct(metrics.get('after_tax_irr'))}",
+        f"Equity Multiple: {fmt(metrics.get('equity_multiple'))}x",
+        f"Cash-on-Cash (Yr 1): {pct(metrics.get('cash_on_cash_yr1'))}",
+        f"DSCR (Yr 1): {fmt(metrics.get('dscr_yr1'))}",
+        f"Yield on Cost: {pct(metrics.get('yield_on_cost'))}",
+        f"Going-In Cap Rate: {pct(metrics.get('going_in_cap_rate'))}",
+        f"Exit Cap Rate: {pct(metrics.get('exit_cap_rate'))}",
+        f"Price per Unit: {dollar(metrics.get('price_per_unit'))}",
+    ]
+
+    # --- Exit ---
+    if reversion:
+        lines += [
+            "",
+            "---------------------------------------",
+            "EXIT / REVERSION",
+            "---------------------------------------",
+            f"Exit Year: {reversion.get('exit_year', 'N/A')}",
+            f"Forward NOI at Exit: {dollar(reversion.get('forward_noi'))}",
+            f"Exit Sale Price: {dollar(reversion.get('sale_price'))}",
+            f"Net Sale Proceeds (after tax): {dollar(reversion.get('net_sale_proceeds_after_tax'))}",
+        ]
+
+    # --- Pro forma summary (first 3 years) ---
+    if pro_forma_rows:
+        lines += [
+            "",
+            "---------------------------------------",
+            "PRO FORMA SUMMARY (first 3 years)",
+            "---------------------------------------",
+        ]
+        for row in pro_forma_rows[:3]:
+            yr = row.get("year", "?")
+            egi = row.get("effective_gross_income", 0)
+            exp = row.get("total_expenses", 0)
+            noi = row.get("noi", 0)
+            btcf = row.get("btcf", 0)
+            lines.append(
+                f"  Year {yr}: EGI={dollar(egi)}  Expenses={dollar(exp)}"
+                f"  NOI={dollar(noi)}  BTCF={dollar(btcf)}"
+            )
+
+    # --- Market data ---
+    demo = market.get("demographics", {}).get("structured", {}) if market else {}
+    caps = market.get("cap_rates", {}) if market else {}
+    crime = market.get("crime", {}) if market else {}
+    ws = market.get("walkscore", {}) if market else {}
+    hud = market.get("hud_fmr", {}) if market else {}
+    rc = market.get("rentcast", {}) if market else {}
+    rc_stats = rc.get("market_stats", {}) if rc else {}
+    rc_avm = rc.get("rent_estimate", {}) if rc else {}
+
+    lines += [
+        "",
+        "---------------------------------------",
+        "MARKET DATA",
+        "---------------------------------------",
+    ]
+
+    if demo:
+        lines += [
+            f"Population: {demo.get('population', 'N/A'):,}" if demo.get('population') else "Population: N/A",
+            f"Median Household Income: {dollar(demo.get('median_income'))}",
+            f"Median Gross Rent: {dollar(demo.get('median_rent'))}/mo",
+            f"Unemployment Rate: {fmt(demo.get('unemployment_rate'))}%",
+            f"Renter-Occupied: {demo.get('renter_pct', 'N/A')}%",
+        ]
+
+    if caps.get("average_cap_rate"):
+        lines.append(f"Market Cap Rate (FRED-derived): {fmt(caps['average_cap_rate'])}%")
+    if caps.get("treasury_10yr"):
+        lines.append(f"10-Year Treasury: {fmt(caps['treasury_10yr'])}%")
+    if caps.get("mortgage_30yr"):
+        lines.append(f"30-Year Mortgage Rate: {fmt(caps['mortgage_30yr'])}%")
+
+    if crime.get("available"):
+        lines += [
+            f"Crime Risk: {crime.get('risk_level')} — {crime.get('violent_per_100k')} violent crimes/100k",
+            f"vs. National Average: {crime.get('vs_national_pct', 0):+.1f}%",
+        ]
+
+    if ws.get("available"):
+        lines += [
+            f"Walk Score: {ws.get('walk_score')} ({ws.get('walk_label')})",
+            f"Transit Score: {ws.get('transit_score')} ({ws.get('transit_label')})",
+            f"Bike Score: {ws.get('bike_score')} ({ws.get('bike_label')})",
+        ]
+
+    if hud.get("available"):
+        fmr_br = hud.get("fmr_by_bedroom", {})
+        lines += [
+            f"HUD Fair Market Rent (2026): Studio=${fmr_br.get('efficiency', 'N/A')}"
+            f" | 1BR=${fmr_br.get('one_br', 'N/A')}"
+            f" | 2BR=${fmr_br.get('two_br', 'N/A')}"
+            f" | 3BR=${fmr_br.get('three_br', 'N/A')}",
+            f"HUD Metro: {hud.get('metro_name')}",
+        ]
+        if hud.get("matched_fmr") and deal and deal.in_place_rent:
+            diff = (deal.in_place_rent - hud["matched_fmr"]) / hud["matched_fmr"] * 100
+            lines.append(f"In-Place Rent vs HUD FMR: {diff:+.1f}%")
+
+    if rc_stats.get("available"):
+        lines += [
+            f"RentCast Market (Zip): Avg Rent=${rc_stats.get('average_rent', 'N/A')}/mo"
+            f"  Median=${rc_stats.get('median_rent', 'N/A')}/mo"
+            f"  Days on Market={rc_stats.get('avg_days_on_market', 'N/A')}",
+        ]
+    if rc_avm.get("available") and rc_avm.get("estimated_rent"):
+        lines.append(f"RentCast AVM Estimate: ${rc_avm['estimated_rent']:,.0f}/mo"
+                     f" (range: ${rc_avm.get('rent_range_low', '?'):,}"
+                     f"–${rc_avm.get('rent_range_high', '?'):,})")
+
+    # --- ML valuation ---
+    if ml and ml.get("available"):
+        lines += [
+            "",
+            "---------------------------------------",
+            "ML VALUATION (GradientBoosting)",
+            "---------------------------------------",
+            f"Assessment: {ml.get('assessment')}",
+            f"Predicted Value: {dollar(ml.get('predicted_value'))}",
+            f"Actual Price: {dollar(ml.get('actual_price'))}",
+            f"Premium/Discount: {ml.get('premium_discount_pct', 0):+.1f}%",
+            f"Model R²: {fmt(ml.get('test_r2'))}",
+        ]
+
+    # --- Monte Carlo ---
+    if mc and mc.get("irr_mean") is not None:
+        probs = mc.get("probabilities", {})
+        lines += [
+            "",
+            "---------------------------------------",
+            "MONTE CARLO (1,000 simulations)",
+            "---------------------------------------",
+            f"IRR: P10={pct(mc.get('irr_p10'))}  P50={pct(mc.get('irr_p50'))}  "
+            f"P90={pct(mc.get('irr_p90'))}",
+            f"Mean IRR: {pct(mc.get('irr_mean'))}  Std Dev: {pct(mc.get('irr_std'))}",
+        ]
+        for label, val in probs.items():
+            lines.append(f"  {label}: {val:.1f}%")
+
+    # --- Recommendation ---
+    if rec:
+        lines += [
+            "",
+            "---------------------------------------",
+            "INTEGRATED RECOMMENDATION",
+            "---------------------------------------",
+            f"Signal: {rec.get('recommendation', 'N/A')}",
+            f"Score: {rec.get('score', 'N/A')}",
+        ]
+        for sig in rec.get("signals", []):
+            lines.append(f"  • {sig}")
+
+    # --- Lease ---
+    if lease and not lease.get("error") and lease.get("portfolio_summary"):
+        ps = lease["portfolio_summary"]
+        lines += [
+            "",
+            "---------------------------------------",
+            "LEASE ANALYSIS",
+            "---------------------------------------",
+            f"Leases Analyzed: {lease.get('lease_count', 'N/A')}",
+            f"Weighted Avg Escalation: {ps.get('weighted_avg_escalation', 'N/A')}%/yr",
+            f"Risk Flags: {', '.join(ps.get('risk_flags', [])) or 'None identified'}",
+        ]
+
+    lines += [
+        "",
+        "---------------------------------------",
+        "INSTRUCTIONS",
+        "---------------------------------------",
+        "- Answer only from the data above. Do not invent numbers.",
+        "- If asked about something not in the data, say so clearly.",
+        "- Be concise: 2-4 sentences for most answers.",
+        "- For numerical questions, cite the exact figure from the data.",
+        "- For 'what if' questions, reason from the financial relationships",
+        "  shown (e.g., lower occupancy → lower NOI → lower IRR) but note",
+        "  you cannot recalculate without running the full model.",
+    ]
+
+    return "\n".join(lines)
+
+
+@app.route("/api/chat/<job_id>", methods=["POST"])
+def chat(job_id):
+    """AI deal chat endpoint — Claude grounded in the deal's analysis results."""
+    if job_id not in jobs:
+        return jsonify({"error": "Job not found"}), 404
+    job = jobs[job_id]
+    if job["status"] != "complete":
+        return jsonify({"error": "Analysis not complete yet"}), 400
+
+    data = request.get_json()
+    if not data or not data.get("message"):
+        return jsonify({"error": "No message provided"}), 400
+
+    history = data.get("history", [])   # list of {role, content}
+    user_message = data["message"].strip()
+
+    if not ANTHROPIC_API_KEY:
+        return jsonify({"error": "ANTHROPIC_API_KEY not configured"}), 500
+
+    try:
+        import anthropic
+        client = anthropic.Anthropic(api_key=ANTHROPIC_API_KEY)
+
+        system_prompt = _build_chat_system_prompt(job)
+
+        messages = []
+        for h in history[-10:]:   # keep last 10 turns for context
+            if h.get("role") in ("user", "assistant") and h.get("content"):
+                messages.append({"role": h["role"], "content": h["content"]})
+        messages.append({"role": "user", "content": user_message})
+
+        response = client.messages.create(
+            model="claude-sonnet-4-6",
+            max_tokens=1024,
+            system=system_prompt,
+            messages=messages,
+        )
+        reply = response.content[0].text
+        return jsonify({"response": reply})
+
+    except Exception as e:
+        logger.error(f"Chat error for job {job_id}: {e}")
+        return jsonify({"error": f"AI error: {str(e)}"}), 500
 
 
 if __name__ == "__main__":
