@@ -4,6 +4,7 @@ outputs/
 .deps_installed
 *.zip
 .env
+.streamlit/secrets.toml
 uploads/
 .coverage
 htmlcov/
