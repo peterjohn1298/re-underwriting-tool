@@ -2,6 +2,8 @@
 
 **Institutional-grade multifamily real estate underwriting, powered by AI & ML.**
 
+[![CI](https://github.com/peterjohn1298/re-underwriting-tool/actions/workflows/ci.yml/badge.svg)](https://github.com/peterjohn1298/re-underwriting-tool/actions/workflows/ci.yml)
+
 Live demo: [re-underwriting-tool.streamlit.app](https://re-underwriting-tool.streamlit.app)
 
 ---
