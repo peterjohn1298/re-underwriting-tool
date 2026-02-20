@@ -32,7 +32,7 @@ if "results" not in st.session_state:
 R = st.session_state["results"]
 
 st.title("💬 AI Deal Assistant")
-st.caption("Ask any question about this deal — grounded in your analysis results.")
+st.caption("Ask any question about this deal — grounded in your analysis results. Powered by Google Gemini.")
 
 
 # ── Build system prompt (mirrors app.py _build_chat_system_prompt) ────────────
@@ -219,17 +219,17 @@ def _build_chat_system_prompt() -> str:
 
 
 # ── API key resolution ────────────────────────────────────────────────────────
-def _get_anthropic_key() -> str:
+def _get_google_key() -> str:
     try:
-        k = st.secrets.get("ANTHROPIC_API_KEY", "")
+        k = st.secrets.get("GOOGLE_API_KEY", "")
     except Exception:
         k = ""
-    return k or os.environ.get("ANTHROPIC_API_KEY", "")
+    return k or os.environ.get("GOOGLE_API_KEY", "")
 
 
-anthropic_key = _get_anthropic_key()
-if not anthropic_key:
-    st.warning("No Anthropic API key configured. Add ANTHROPIC_API_KEY to your Streamlit secrets.")
+gemini_key = _get_google_key()
+if not gemini_key:
+    st.warning("No Google API key configured. Add GOOGLE_API_KEY to your Streamlit secrets.")
 
 
 # ── Chat UI ───────────────────────────────────────────────────────────────────
@@ -243,39 +243,42 @@ for msg in st.session_state["chat_history"]:
 
 # Chat input
 prompt = st.chat_input("Ask anything about this deal... (e.g. 'What is the main risk?')")
-if prompt and anthropic_key:
+if prompt and gemini_key:
     # Show user message
     st.session_state["chat_history"].append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # Build conversation history (last 10 turns, user/assistant only)
+    # Build conversation history (last 10 turns)
+    # Gemini uses role "model" instead of "assistant", and "parts" instead of "content"
     system_prompt = _build_chat_system_prompt()
-    messages = []
+    gemini_history = []
     for h in st.session_state["chat_history"][-10:]:
         if h["role"] in ("user", "assistant"):
-            messages.append({"role": h["role"], "content": h["content"]})
+            role = "model" if h["role"] == "assistant" else "user"
+            gemini_history.append({"role": role, "parts": [h["content"]]})
 
-    # Call Claude (Anthropic) — streaming so tokens appear word-by-word
+    # Call Gemini — streaming so tokens appear word-by-word
     with st.chat_message("assistant"):
         try:
-            import anthropic
-            client = anthropic.Anthropic(api_key=anthropic_key)
-            with client.messages.stream(
-                model="claude-sonnet-4-6",
-                max_tokens=1500,
-                system=system_prompt,
-                messages=messages,
-            ) as stream:
-                reply = st.write_stream(stream.text_stream)
+            import google.generativeai as genai
+            genai.configure(api_key=gemini_key)
+            model = genai.GenerativeModel(
+                model_name="gemini-2.0-flash",
+                system_instruction=system_prompt,
+            )
+            response = model.generate_content(gemini_history, stream=True)
+            reply = st.write_stream(
+                chunk.text for chunk in response if hasattr(chunk, "text") and chunk.text
+            )
             st.session_state["chat_history"].append({"role": "assistant", "content": reply})
         except Exception as e:
             err_msg = f"AI error: {str(e)}"
             st.error(err_msg)
             st.session_state["chat_history"].append({"role": "assistant", "content": err_msg})
 
-elif prompt and not anthropic_key:
-    st.error("Anthropic API key required for chat. Please configure ANTHROPIC_API_KEY.")
+elif prompt and not gemini_key:
+    st.error("Google API key required for chat. Please configure GOOGLE_API_KEY in Streamlit secrets.")
 
 # Clear history button
 if st.session_state["chat_history"]:
