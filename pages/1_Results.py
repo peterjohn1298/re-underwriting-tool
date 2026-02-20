@@ -102,8 +102,12 @@ st.title(f"📊 {prop_name}")
 if prop_addr:
     st.caption(prop_addr)
 
-col_hdr1, col_hdr2 = st.columns([3, 1])
+col_hdr1, col_hdr2, col_hdr3 = st.columns([3, 1, 1])
 with col_hdr2:
+    if st.button("💬 AI Chat", use_container_width=True,
+                 help="Ask the AI analyst questions about this deal"):
+        st.switch_page("pages/2_Chat.py")
+with col_hdr3:
     if st.button("← New Analysis", use_container_width=True):
         st.switch_page("streamlit_app.py")
     # Save for comparison
