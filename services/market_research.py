@@ -40,24 +40,99 @@ hud = HUDClient()
 walkscore = WalkScoreClient()
 
 
-def search_comps(property_type: str, city: str, state: str) -> dict:
-    """Generate comparable sales calibrated to actual city-level market data.
+def search_comps(property_type: str, city: str, state: str,
+                 rentcast_data: dict = None, cap_rates_data: dict = None) -> dict:
+    """Find comparable sales using RentCast AVM comps when available.
 
-    Fix #4: Comps are synthetic but explicitly labeled and better calibrated
-    using city-level Census data when available.
+    When RentCast data is available, derives implied price-per-unit from real
+    rental listings using the income approach:
+        Implied value = (rent × 12 × (1 − expense_ratio)) ÷ cap_rate
+
+    Falls back to Census-calibrated estimates when no real listings are available.
     """
     cache_key = f"comps_{property_type}_{city}_{state}"
     if cache_key in _cache:
         return _cache[cache_key]
 
-    # Use city-level Census data for calibration
+    # Census data for fallback calibration
     census_data = census.get_all_demographics(city, state)
     median_rent = census_data.get("median_rent")
     median_income = census_data.get("median_income")
     data_level = census_data.get("level", "unknown")
 
+    base_cap = (
+        (cap_rates_data or {}).get("average_cap_rate")
+        or FALLBACK_CAP_RATES.get(property_type, 6.0)
+    )
+
+    # ── Try to build comps from real RentCast listings ─────────────────────────
+    real_comps = []
+    if rentcast_data and rentcast_data.get("available"):
+        # AVM comps: listings RentCast used to estimate rent (most comparable)
+        rent_est = rentcast_data.get("rent_estimate", {}) or {}
+        avm_listings = rent_est.get("comps_used", []) if rent_est.get("available") else []
+
+        # Active rental listings nearby as fallback
+        rental_comps_raw = rentcast_data.get("rental_comps", {}) or {}
+        nearby_listings = (
+            rental_comps_raw.get("listings", [])
+            if rental_comps_raw.get("available") else []
+        )
+
+        candidates = avm_listings or nearby_listings
+        expense_ratio = 0.42  # Industry-standard multifamily expense ratio
+
+        for listing in candidates[:7]:
+            rent = listing.get("rent")
+            if not rent or rent <= 0:
+                continue
+
+            # Income approach: Implied value = NOI ÷ cap rate
+            noi_per_unit = rent * 12 * (1 - expense_ratio)
+            implied_ppu = int(noi_per_unit / (base_cap / 100))
+
+            addr = listing.get("address", "")
+            comp_city = listing.get("city", city)
+            name = addr if addr else f"{comp_city} Rental Comp"
+
+            real_comps.append({
+                "name": name,
+                "price_per_unit": implied_ppu,
+                "cap_rate": round(base_cap, 2),
+                "year": 2024,
+                "units": listing.get("bedrooms", "—"),
+                "rent_per_unit": rent,
+                "sq_ft": listing.get("sq_ft"),
+                "source": "RentCast",
+                "synthetic": False,
+                "method": (
+                    f"Income approach: ${rent:,}/mo × 12 × "
+                    f"{(1-expense_ratio):.0%} NOI ÷ {base_cap:.2f}% cap"
+                ),
+            })
+
+    if real_comps:
+        data = {
+            "comps": real_comps,
+            "source": "RentCast_income_approach",
+            "data_level": "listing",
+            "note": (
+                f"{len(real_comps)} implied values derived from real RentCast rental "
+                f"listings using income approach (42% expense ratio, "
+                f"{base_cap:.2f}% market cap rate). Represents implied asset value — "
+                f"NOT recorded sales transactions. Use broker comps for investment decisions."
+            ),
+            "calibration_data": {
+                "cap_rate_used": base_cap,
+                "expense_ratio": 0.42,
+                "data_level": "RentCast",
+            },
+        }
+        _cache[cache_key] = data
+        return data
+
+    # ── Fallback: Census-calibrated synthetic estimates ────────────────────────
     base_ppu = _estimate_price_per_unit(property_type, median_rent, median_income)
-    base_cap = FALLBACK_CAP_RATES.get(property_type, 6.0)
 
     import random
     random.seed(hash(f"{city}{state}{property_type}"))
@@ -68,12 +143,12 @@ def search_comps(property_type: str, city: str, state: str) -> dict:
         cap_var = random.uniform(-0.5, 0.5)
         units = random.choice([60, 80, 95, 110, 120, 150, 175, 200])
         comps.append({
-            "name": f"{city} {property_type} Comp {i+1}",
+            "name": f"{city} {property_type} Estimate {i+1}",
             "price_per_unit": int(base_ppu * (1 + variation)),
             "cap_rate": round(base_cap + cap_var, 2),
             "year": random.choice([2023, 2024, 2024, 2025]),
             "units": units,
-            "synthetic": True,  # Fix #4: Explicit labeling
+            "synthetic": True,
         })
 
     data = {
@@ -81,12 +156,11 @@ def search_comps(property_type: str, city: str, state: str) -> dict:
         "source": "synthetic_calibrated",
         "data_level": data_level,
         "note": (
-            f"Comps are SYNTHETIC estimates calibrated to {data_level}-level "
-            f"Census data (median rent: ${median_rent:,}/mo, median income: "
-            f"${median_income:,}). They are NOT real transaction records. "
-            f"Use actual broker comps for investment decisions."
-            if median_rent and median_income else
-            "Comps are synthetic defaults. No Census data available for calibration."
+            f"No RentCast address data available. Estimates calibrated to "
+            f"{data_level}-level Census data (median rent: ${median_rent:,}/mo). "
+            f"NOT real transaction records."
+            if median_rent else
+            "Estimates based on fallback defaults. No address or Census data available."
         ),
         "calibration_data": {
             "median_rent": median_rent,
@@ -311,7 +385,7 @@ def run_full_research(property_type: str, city: str, state: str,
                       address: str = "", zip_code: str = "",
                       avg_bedrooms: int = 2, avg_sq_ft: int = None) -> dict:
     """Run all market research and return combined results."""
-    # Get lat/lon from RentCast AVM if available (improves Walk Score accuracy)
+    # Fetch RentCast first — provides lat/lon for Walk Score + real comps for search_comps
     rentcast_data = search_rentcast_data(property_type, address, zip_code,
                                          avg_bedrooms, avg_sq_ft)
     lat = lon = None
@@ -320,9 +394,14 @@ def run_full_research(property_type: str, city: str, state: str,
         lat = avm.get("latitude")
         lon = avm.get("longitude")
 
+    # Fetch cap rates before comps so search_comps can use the real market cap rate
+    cap_rates_data = search_cap_rates(property_type, city)
+
     return {
-        "comps": search_comps(property_type, city, state),
-        "cap_rates": search_cap_rates(property_type, city),
+        "comps": search_comps(property_type, city, state,
+                              rentcast_data=rentcast_data,
+                              cap_rates_data=cap_rates_data),
+        "cap_rates": cap_rates_data,
         "demographics": search_demographics(city, state),
         "rent_trends": search_rent_trends(property_type, city, state),
         "macro": _fetch_macro_signals(),

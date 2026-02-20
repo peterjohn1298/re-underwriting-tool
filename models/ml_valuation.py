@@ -44,7 +44,11 @@ class PropertyValuationModel:
         self.test_mape = None
 
     def _generate_training_data(self, market_data: dict) -> pd.DataFrame:
-        """Generate synthetic training data calibrated to real market indicators."""
+        """Generate synthetic training data calibrated to real market indicators.
+
+        Rent calibration prefers RentCast market average (live, zip-level) over
+        Census median rent (lagged 1-2 years, area-level).
+        """
         np.random.seed(42)
         n_samples = 800
 
@@ -52,6 +56,7 @@ class PropertyValuationModel:
         demo = market_data.get("demographics", {}).get("structured", {})
         cap_data = market_data.get("cap_rates", {})
         macro = market_data.get("macro", {})
+        rentcast = market_data.get("rentcast", {}) or {}
 
         real_median_income = demo.get("median_income") or 65000
         real_population = demo.get("population") or 5_000_000
@@ -65,7 +70,11 @@ class PropertyValuationModel:
         real_housing_starts = macro.get("housing_starts") or 1400
         real_rental_vacancy = macro.get("rental_vacancy_rate") or 6.5
         real_treasury_spread = macro.get("treasury_spread") or 0.5
-        real_median_rent = demo.get("median_rent") or 1400
+
+        # Prefer RentCast live market average rent over lagged Census median
+        rc_market_stats = rentcast.get("market_stats", {}) or {}
+        rentcast_avg_rent = rc_market_stats.get("average_rent") if rc_market_stats.get("available") else None
+        real_median_rent = rentcast_avg_rent or demo.get("median_rent") or 1400
 
         records = []
         for i in range(n_samples):
@@ -267,6 +276,14 @@ class PropertyValuationModel:
             n_train = int(800 * 0.80)
             n_test = 800 - n_train
 
+            # Note whether real RentCast market rent was used for calibration
+            rentcast = market_data.get("rentcast", {}) or {}
+            rc_stats = rentcast.get("market_stats", {}) or {}
+            rent_source = (
+                "RentCast live market average" if rc_stats.get("available") and rc_stats.get("average_rent")
+                else "Census median rent"
+            )
+
             return {
                 "predicted_value_per_unit": round(predicted_ppu),
                 "predicted_total_value": round(predicted_total),
@@ -284,9 +301,10 @@ class PropertyValuationModel:
                 "test_samples": n_test,
                 "features_used": len(self.FEATURES),
                 "confidence_note": (
-                    f"Model trained on {800} synthetic records calibrated to FRED/Census macro indicators "
-                    f"using {len(self.FEATURES)} features. "
+                    f"Model trained on {800} synthetic records calibrated to real FRED/Census macro indicators "
+                    f"and {rent_source} using {len(self.FEATURES)} features. "
                     f"Test set MAPE: {self.test_mape}%. Assessment threshold: +/-{threshold:.0f}%. "
+                    f"Production use would require a transaction database (CoStar, ATTOM). "
                     f"This is NOT a substitute for a professional appraisal."
                 ),
             }
