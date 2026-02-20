@@ -284,6 +284,9 @@ with col_demo:
             st.session_state[f"um_count_{_ut}"]       = DEMO_VALUES[f"um_count_{_ut}"]
             st.session_state[f"um_rent_{_ut}"]         = DEMO_VALUES[f"um_rent_{_ut}"]
             st.session_state[f"um_market_rent_{_ut}"]  = DEMO_VALUES[f"um_market_rent_{_ut}"]
+        # Enable ML + rent prediction for demo
+        st.session_state["ck_ml_valuation"]    = True
+        st.session_state["ck_rent_prediction"] = True
         st.rerun()
 
 if st.session_state.get("demo"):
@@ -401,10 +404,10 @@ with st.form("deal_form"):
         c7, c8 = st.columns(2)
         with c7:
             enable_ml_valuation = st.checkbox(
-                "Enable ML Property Valuation", value=False,
+                "Enable ML Property Valuation", key="ck_ml_valuation",
                 help="GradientBoosting model trained on market comps to assess fair value")
             enable_rent_prediction = st.checkbox(
-                "Enable Rent Growth Prediction", value=False,
+                "Enable Rent Growth Prediction", key="ck_rent_prediction",
                 help="ML-based rent growth forecast using FRED CPI & ZORI data; feeds into pro forma")
             enable_waterfall = st.checkbox(
                 "Enable LP/GP Waterfall", value=False,

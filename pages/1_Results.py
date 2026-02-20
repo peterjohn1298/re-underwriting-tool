@@ -493,9 +493,9 @@ with tabs[4]:
 
     with col_ml:
         st.subheader("ML Property Valuation")
-        if ml and ml.get("available") and not ml.get("error"):
+        if ml and ml.get("assessment") and not ml.get("error"):
             assessment = ml.get("assessment", "UNKNOWN")
-            disc = ml.get("premium_discount_pct", 0)
+            disc = ml.get("premium_discount_pct", 0) or 0
             if assessment == "UNDERVALUED":
                 st.success(f"**{assessment}** — {abs(disc):.1f}% below predicted value")
             elif assessment == "OVERVALUED":
@@ -504,12 +504,12 @@ with tabs[4]:
                 st.info(f"**{assessment}** — within fair value range")
 
             ml1, ml2 = st.columns(2)
-            ml1.metric("Predicted Value",   _dollar(ml.get("predicted_value")))
-            ml2.metric("Actual Price",      _dollar(ml.get("actual_price")))
-            ml1.metric("Model R²",          _fmt(ml.get("test_r2")))
-            ml2.metric("Premium/Discount",  f"{disc:+.1f}%")
+            ml1.metric("Predicted Total Value", _dollar(ml.get("predicted_total_value")))
+            ml2.metric("Actual Price/Unit",     _dollar(ml.get("actual_price_per_unit")))
+            ml1.metric("Model R²",              _fmt(ml.get("test_r2")))
+            ml2.metric("Premium/Discount",      f"{disc:+.1f}%")
 
-            features = ml.get("top_features", [])
+            features = list(ml.get("feature_importances", {}).keys())
             if features:
                 st.markdown("**Top Valuation Drivers**")
                 for feat in features[:5]:
@@ -521,13 +521,20 @@ with tabs[4]:
 
     with col_mc:
         st.subheader("Monte Carlo Simulation")
-        if mc and mc.get("irr_mean") is not None and not mc.get("error"):
+        if mc and mc.get("mean_irr") is not None and not mc.get("error"):
+            pcts = mc.get("percentiles", {})
+            p10  = pcts.get("P10")
+            p50  = pcts.get("P50 (Median)")
+            p90  = pcts.get("P90")
+            mean_irr = mc.get("mean_irr")
+            std_irr  = mc.get("std_irr")
+
             mc1, mc2, mc3 = st.columns(3)
-            mc1.metric("P10 IRR", _pct(mc.get("irr_p10")))
-            mc2.metric("P50 IRR", _pct(mc.get("irr_p50")))
-            mc3.metric("P90 IRR", _pct(mc.get("irr_p90")))
-            mc1.metric("Mean IRR", _pct(mc.get("irr_mean")))
-            mc2.metric("Std Dev",  _pct(mc.get("irr_std")))
+            mc1.metric("P10 IRR",  f"{p10:.1f}%"      if p10      is not None else "—")
+            mc2.metric("P50 IRR",  f"{p50:.1f}%"      if p50      is not None else "—")
+            mc3.metric("P90 IRR",  f"{p90:.1f}%"      if p90      is not None else "—")
+            mc1.metric("Mean IRR", f"{mean_irr:.1f}%" if mean_irr is not None else "—")
+            mc2.metric("Std Dev",  f"{std_irr:.1f}%"  if std_irr  is not None else "—")
 
             probs = mc.get("probabilities", {})
             if probs:
@@ -537,19 +544,22 @@ with tabs[4]:
                     [{"Scenario": k, "Probability": f"{v:.1f}%"} for k, v in probs.items()])
                 st.dataframe(prob_df, use_container_width=True, hide_index=True)
 
-            # Histogram
-            irr_samples = mc.get("irr_samples", [])
-            if irr_samples:
+            # Histogram using pre-computed bins/counts
+            hist_bins   = mc.get("histogram_bins", [])
+            hist_counts = mc.get("histogram_counts", [])
+            if hist_bins and hist_counts:
                 try:
-                    import plotly.express as px
-                    fig = px.histogram(
-                        x=[x * 100 for x in irr_samples],
-                        nbins=50,
-                        title="IRR Distribution (1,000 simulations)",
-                        labels={"x": "IRR (%)", "y": "Count"},
-                        color_discrete_sequence=["#C9A84C"],
-                    )
+                    import plotly.graph_objects as go
+                    fig = go.Figure(go.Bar(
+                        x=hist_bins,
+                        y=hist_counts,
+                        name="IRR Distribution",
+                        marker_color="#C9A84C",
+                    ))
                     fig.update_layout(
+                        title="IRR Distribution (Monte Carlo Simulation)",
+                        xaxis_title="IRR (%)",
+                        yaxis_title="Count",
                         paper_bgcolor="#0D1117",
                         plot_bgcolor="#161B22",
                         font_color="#E6EDF3",
@@ -569,26 +579,44 @@ with tabs[5]:
     st.subheader("Rent Growth Prediction")
     if rent_pred and not rent_pred.get("error"):
         import pandas as pd
-        avg_growth = rent_pred.get("avg_predicted_growth", 0)
+        avg_growth = rent_pred.get("avg_predicted_growth", 0) or 0
+        current_rent = rent_pred.get("current_rent", 0) or 0
         st.metric("Average Predicted Growth", f"{avg_growth:.2f}%/yr")
+        if current_rent:
+            st.caption(f"Current blended rent: **${current_rent:,.2f}/unit/mo**")
 
-        yr_table = rent_pred.get("yearly_predictions", [])
-        if yr_table:
-            rp_df = pd.DataFrame(yr_table)
+        # Build table from actual model output keys
+        predicted_rates    = rent_pred.get("predicted_rates", [])
+        predicted_rents    = rent_pred.get("predicted_rents_per_unit", [])
+        predicted_revenues = rent_pred.get("predicted_annual_revenue", [])
+        hold_period = rent_pred.get("hold_period", len(predicted_rents))
+        years = list(range(1, hold_period + 1))
+
+        if predicted_rents:
+            yr_rows = []
+            for i, yr in enumerate(years):
+                row = {"Year": yr}
+                if i < len(predicted_rates):
+                    row["Growth Rate"] = f"{predicted_rates[i]:.2f}%"
+                if i < len(predicted_rents):
+                    row["Rent/Unit/Mo"] = f"${predicted_rents[i]:,.2f}"
+                if i < len(predicted_revenues):
+                    row["Annual Revenue"] = f"${predicted_revenues[i]:,.0f}"
+                yr_rows.append(row)
+            rp_df = pd.DataFrame(yr_rows)
             st.dataframe(rp_df, use_container_width=True, hide_index=True)
 
             # Plotly line chart
             try:
                 import plotly.graph_objects as go
                 fig = go.Figure()
-                if "year" in rp_df.columns and "predicted_rent" in rp_df.columns:
-                    fig.add_trace(go.Scatter(
-                        x=rp_df["year"],
-                        y=rp_df["predicted_rent"],
-                        mode="lines+markers",
-                        name="Predicted Rent",
-                        line=dict(color="#C9A84C", width=2),
-                    ))
+                fig.add_trace(go.Scatter(
+                    x=years[:len(predicted_rents)],
+                    y=predicted_rents,
+                    mode="lines+markers",
+                    name="Predicted Rent/Unit/Mo",
+                    line=dict(color="#C9A84C", width=2),
+                ))
                 fig.update_layout(
                     title="Rent Prediction (Year-by-Year)",
                     xaxis_title="Year", yaxis_title="Rent ($/unit/mo)",
