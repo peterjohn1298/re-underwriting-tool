@@ -207,6 +207,19 @@ def _build_recommendation(pro_forma: dict, ml_valuation=None,
     elif dscr < 1.25:
         signals.append(("DSCR", "CAUTION", f"{dscr:.2f}x — thin coverage"))
         score -= 1
+    elif dscr >= 1.5:
+        signals.append(("DSCR", "POSITIVE", f"{dscr:.2f}x — strong debt coverage"))
+        score += 1
+
+    coc = m.get("cash_on_cash_yr1", 0) or 0
+    if coc >= 0.07:
+        signals.append(("Cash-on-Cash", "POSITIVE", f"{coc*100:.1f}% Yr 1 — strong current yield"))
+        score += 1
+    elif coc >= 0.05:
+        signals.append(("Cash-on-Cash", "NEUTRAL", f"{coc*100:.1f}% Yr 1 — acceptable yield"))
+    elif coc < 0:
+        signals.append(("Cash-on-Cash", "WARNING", f"{coc*100:.1f}% Yr 1 — negative cash flow"))
+        score -= 1
 
     if ml_valuation and not ml_valuation.get("error"):
         assessment = ml_valuation.get("assessment", "")
