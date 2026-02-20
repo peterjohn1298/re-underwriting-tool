@@ -256,25 +256,23 @@ if prompt and anthropic_key:
         if h["role"] in ("user", "assistant"):
             messages.append({"role": h["role"], "content": h["content"]})
 
-    # Call Claude (Anthropic)
+    # Call Claude (Anthropic) — streaming so tokens appear word-by-word
     with st.chat_message("assistant"):
-        with st.spinner("Analyzing..."):
-            try:
-                import anthropic
-                client = anthropic.Anthropic(api_key=anthropic_key)
-                response = client.messages.create(
-                    model="claude-opus-4-6",
-                    max_tokens=1024,
-                    system=system_prompt,
-                    messages=messages,
-                )
-                reply = response.content[0].text
-                st.markdown(reply)
-                st.session_state["chat_history"].append({"role": "assistant", "content": reply})
-            except Exception as e:
-                err_msg = f"AI error: {str(e)}"
-                st.error(err_msg)
-                st.session_state["chat_history"].append({"role": "assistant", "content": err_msg})
+        try:
+            import anthropic
+            client = anthropic.Anthropic(api_key=anthropic_key)
+            with client.messages.stream(
+                model="claude-sonnet-4-6",
+                max_tokens=1500,
+                system=system_prompt,
+                messages=messages,
+            ) as stream:
+                reply = st.write_stream(stream.text_stream)
+            st.session_state["chat_history"].append({"role": "assistant", "content": reply})
+        except Exception as e:
+            err_msg = f"AI error: {str(e)}"
+            st.error(err_msg)
+            st.session_state["chat_history"].append({"role": "assistant", "content": err_msg})
 
 elif prompt and not anthropic_key:
     st.error("Anthropic API key required for chat. Please configure ANTHROPIC_API_KEY.")
