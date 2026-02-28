@@ -1220,6 +1220,9 @@
                         <tr><td>Expenses</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.total_expenses) }})</td>{% endfor %}</tr>
                         <tr class="fw-bold"><td>NOI</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.noi) }}</td>{% endfor %}</tr>
                         <tr><td>Debt Service</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.debt_service) }})</td>{% endfor %}</tr>
+                        {% if renovation and renovation.enabled and renovation.capex_by_year %}
+                        <tr class="text-danger"><td>Renovation CapEx</td>{% for yr in results.pro_forma %}<td class="text-end">{% if yr.renovation_capex > 0 %}(${{ "{:,.0f}".format(yr.renovation_capex) }}){% else %}—{% endif %}</td>{% endfor %}</tr>
+                        {% endif %}
                         <tr class="fw-bold text-gold"><td>BTCF</td>{% for yr in results.pro_forma %}<td class="text-end">${{ "{:,.0f}".format(yr.btcf) }}</td>{% endfor %}</tr>
                         {% if results.pro_forma[0].atcf is defined %}
                         <tr class="text-muted"><td>Depreciation</td>{% for yr in results.pro_forma %}<td class="text-end">(${{ "{:,.0f}".format(yr.depreciation) }})</td>{% endfor %}</tr>
@@ -1574,6 +1577,81 @@
                                 <span class="text-muted">GP Promote ($)</span>
                                 <span class="fw-bold text-warning">${{ "{:,.0f}".format(waterfall.gp_promote) }}</span>
                             </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {% endif %}
+
+        <!-- ========== VALUE-ADD RENOVATION ========== -->
+        {% if renovation and renovation.enabled %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy">
+                <h6 class="mb-0"><i class="bi bi-hammer me-2"></i>Value-Add Renovation Analysis</h6>
+            </div>
+            <div class="card-body">
+                <div class="row g-3 mb-4">
+                    <div class="col-md-3 text-center">
+                        <div class="text-muted small">Total Cost (w/ contingency)</div>
+                        <div class="fs-4 fw-bold text-gold">${{ "{:,.0f}".format(renovation.total_cost) }}</div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="text-muted small">Rent Bump / Unit</div>
+                        <div class="fs-4 fw-bold text-info">${{ "{:,.0f}".format(renovation.rent_bump_per_unit) }}/mo</div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="text-muted small">Annual NOI Lift</div>
+                        <div class="fs-4 fw-bold text-success">${{ "{:,.0f}".format(renovation.annual_noi_lift) if renovation.annual_noi_lift else "N/A" }}</div>
+                    </div>
+                    <div class="col-md-3 text-center">
+                        <div class="text-muted small">Payback Period</div>
+                        <div class="fs-4 fw-bold text-warning">{{ renovation.payback_years if renovation.payback_years else "N/A" }} yrs</div>
+                    </div>
+                </div>
+
+                <div class="row g-3">
+                    <div class="col-md-6">
+                        <h6 class="text-gold mb-2">NOI Impact</h6>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-bordered align-middle mb-0">
+                                <tbody>
+                                    <tr>
+                                        <td class="text-muted">Pre-Renovation NOI (Year {{ [renovation.completion_year - 1, 1]|max }})</td>
+                                        <td class="text-end fw-bold">${{ "{:,.0f}".format(renovation.pre_renovation_noi) if renovation.pre_renovation_noi else "N/A" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">Post-Renovation NOI (Year {{ renovation.completion_year + 1 }})</td>
+                                        <td class="text-end fw-bold text-success">${{ "{:,.0f}".format(renovation.post_renovation_noi) if renovation.post_renovation_noi else "N/A" }}</td>
+                                    </tr>
+                                    <tr>
+                                        <td class="text-muted">Completion Year</td>
+                                        <td class="text-end">Year {{ renovation.completion_year }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <h6 class="text-gold mb-2">Capex Schedule</h6>
+                        <div class="table-responsive">
+                            <table class="table table-dark table-bordered align-middle mb-0">
+                                <thead>
+                                    <tr><th>Year</th><th class="text-end">Capex Spend</th></tr>
+                                </thead>
+                                <tbody>
+                                    {% for yr, amt in renovation.capex_by_year.items() %}
+                                    <tr>
+                                        <td>Year {{ yr }}</td>
+                                        <td class="text-end text-danger">${{ "{:,.0f}".format(amt) }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                    <tr class="fw-bold">
+                                        <td>Total</td>
+                                        <td class="text-end text-gold">${{ "{:,.0f}".format(renovation.total_cost) }}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                 </div>

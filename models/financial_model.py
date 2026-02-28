@@ -1,5 +1,7 @@
 """10-year pro forma engine — derives everything from DealInputs."""
 
+from math import ceil
+
 from models.assumptions import DealInputs, DerivedAssumptions, derive_assumptions, to_full_dict
 from models.metrics import (
     calc_irr, calc_equity_multiple, calc_cash_on_cash,
@@ -65,6 +67,15 @@ def build_pro_forma(deal: DealInputs) -> dict:
             return yearly_growth[yr_idx] / 100  # predictor returns percentages
         return deal.revenue_growth_rate
 
+    # --- Renovation Capex Schedule ---
+    reno_capex_by_year = {}
+    if deal.enable_renovation and derived.total_renovation_cost > 0:
+        span = max(1, ceil(deal.renovation_duration_months / 12))
+        annual_spend = derived.total_renovation_cost / span
+        for y in range(deal.renovation_start_year, deal.renovation_start_year + span):
+            if 1 <= y <= deal.hold_period_years:
+                reno_capex_by_year[y] = annual_spend
+
     # --- Tax / Depreciation ---
     annual_depreciation = derived.annual_depreciation
     tax_rate = deal.tax_rate
@@ -99,6 +110,11 @@ def build_pro_forma(deal: DealInputs) -> dict:
                     rent_per_unit *= (1 + g)
             else:
                 rent_per_unit = in_place * (1 + deal.revenue_growth_rate) ** (yr - 1)
+
+        # Apply renovation rent bump once construction is complete
+        if (deal.enable_renovation and deal.renovation_rent_bump > 0
+                and yr > derived.renovation_completion_year):
+            rent_per_unit += deal.renovation_rent_bump
 
         gpr = rent_per_unit * deal.total_units * 12
 
@@ -143,7 +159,8 @@ def build_pro_forma(deal: DealInputs) -> dict:
         else:
             yr_ds = annual_ds
 
-        btcf = noi - yr_ds
+        reno_capex_this_year = reno_capex_by_year.get(yr, 0.0)
+        btcf = noi - yr_ds - reno_capex_this_year
 
         # --- Tax Analysis (Fix #9) ---
         # Interest portion of debt service
@@ -180,6 +197,7 @@ def build_pro_forma(deal: DealInputs) -> dict:
             "total_expenses": round(total_expenses, 2),
             "noi": round(noi, 2),
             "debt_service": round(yr_ds, 2),
+            "renovation_capex": round(reno_capex_this_year, 2),
             "btcf": round(btcf, 2),
             # Tax fields
             "interest_expense": round(yr_interest, 2),
@@ -192,6 +210,37 @@ def build_pro_forma(deal: DealInputs) -> dict:
         annual_nois.append(noi)
         annual_btcfs.append(btcf)
         annual_atcfs.append(atcf)
+
+    # --- Renovation Metrics ---
+    noi_lift = None
+    payback_years = None
+    pre_renovation_noi = None
+    post_renovation_noi = None
+
+    if deal.enable_renovation and derived.total_renovation_cost > 0:
+        post_reno_year = derived.renovation_completion_year + 1
+        if 1 <= post_reno_year <= years:
+            post_reno_occ = pro_forma_years[post_reno_year - 1]["occupancy"]
+            noi_lift = (deal.renovation_rent_bump * deal.total_units * 12
+                        * post_reno_occ * (1 - derived.expense_ratio))
+            payback_years = round(derived.total_renovation_cost / noi_lift, 1) if noi_lift > 0 else None
+
+        pre_year_idx = max(0, deal.renovation_start_year - 2)
+        pre_renovation_noi = pro_forma_years[pre_year_idx]["noi"]
+        if post_reno_year <= years:
+            post_renovation_noi = pro_forma_years[min(post_reno_year - 1, years - 1)]["noi"]
+
+    renovation_summary = {
+        "enabled": deal.enable_renovation,
+        "total_cost": round(derived.total_renovation_cost, 2),
+        "capex_by_year": {k: round(v, 2) for k, v in reno_capex_by_year.items()},
+        "completion_year": derived.renovation_completion_year,
+        "rent_bump_per_unit": deal.renovation_rent_bump,
+        "annual_noi_lift": round(noi_lift, 2) if noi_lift is not None else None,
+        "payback_years": payback_years,
+        "pre_renovation_noi": round(pre_renovation_noi, 2) if pre_renovation_noi is not None else None,
+        "post_renovation_noi": round(post_renovation_noi, 2) if post_renovation_noi is not None else None,
+    }
 
     # --- Exit / Reversion ---
     exit_year = min(hold, years)
@@ -312,6 +361,7 @@ def build_pro_forma(deal: DealInputs) -> dict:
         "amortization_annual": annual_amort,
         "reversion": reversion,
         "metrics": metrics,
+        "renovation": renovation_summary,
         "levered_cash_flows": [round(cf, 2) for cf in levered_cfs],
         "unlevered_cash_flows": [round(cf, 2) for cf in unlevered_cfs],
         "after_tax_cash_flows": [round(cf, 2) for cf in levered_atcfs],

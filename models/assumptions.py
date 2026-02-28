@@ -1,4 +1,5 @@
 from dataclasses import dataclass, field
+from math import ceil
 
 
 @dataclass
@@ -62,6 +63,14 @@ class DealInputs:
     preferred_return: float = 0.08    # LP preferred return (annualized)
     promote_pct: float = 0.20         # GP promote share of residual above pref
 
+    # Value-add renovation
+    enable_renovation: bool = False
+    renovation_budget: float = 0.0          # total hard cost budget ($)
+    renovation_rent_bump: float = 0.0       # rent increase per unit/mo post-renovation ($)
+    renovation_start_year: int = 1          # year construction begins (1–hold_period)
+    renovation_duration_months: int = 12    # construction duration
+    renovation_contingency_pct: float = 0.10  # contingency on budget (default 10%)
+
     # Backward compat
     @property
     def lease_pdf_path(self):
@@ -121,6 +130,10 @@ class DerivedAssumptions:
     depreciation_years: int = 27
     annual_depreciation: float = 0.0
     depreciable_basis: float = 0.0
+
+    # Renovation (derived from DealInputs renovation fields)
+    total_renovation_cost: float = 0.0
+    renovation_completion_year: int = 0
 
 
 def parse_address(address: str) -> dict:
@@ -249,6 +262,15 @@ def derive_assumptions(deal: DealInputs) -> DerivedAssumptions:
 
     d.depreciable_basis = deal.purchase_price * (1 - deal.land_value_pct) + d.total_capex
     d.annual_depreciation = d.depreciable_basis / d.depreciation_years if d.depreciation_years > 0 else 0
+
+    # --- Renovation ---
+    if deal.enable_renovation and deal.renovation_budget > 0:
+        d.total_renovation_cost = deal.renovation_budget * (1 + deal.renovation_contingency_pct)
+        span = max(1, ceil(deal.renovation_duration_months / 12))
+        d.renovation_completion_year = deal.renovation_start_year + span
+    else:
+        d.total_renovation_cost = 0.0
+        d.renovation_completion_year = 0
 
     return d
 

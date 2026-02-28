@@ -92,8 +92,8 @@ Build order for remaining work: S6 → S7 → S8 → S9 → S10 → S11
 |-------|--------|----------|
 | Define (开题调研) | ✅ Complete | `product-overview.md` |
 | Represent (Roadmap) | ✅ Complete | `roadmap.md` (this file) |
-| Implement | ✅ Complete | `app.py`, `models/`, `services/` — 11/11 sections |
-| Validate | ✅ Active | `validation.md` (152 tests, CI green, manual QA all sections) |
+| Implement | ✅ Complete | `app.py`, `models/`, `services/` — 11/11 sections + value-add renovation |
+| Validate | ✅ Active | `validation.md` (157 tests, CI green, manual QA all sections) |
 | Evolve | ✅ Active | Deployed on Render, CI/CD auto-deploy on master push |
 | Reflect | ✅ Active | `reflect.md` — updated with professor feedback iteration |
 

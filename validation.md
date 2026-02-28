@@ -175,6 +175,23 @@ _DRIVER Validate stage: Cross-checking our instruments._
 
 ---
 
+---
+
+## Section 12: Value-Add Renovation Modeling
+
+| Check | Status | Evidence |
+|-------|--------|----------|
+| Known Answers | ✅ pass | `renovation_budget=$1M, contingency=10%` → `total_renovation_cost=$1.1M`. Verified by hand. |
+| Known Answers | ✅ pass | `start_year=2, duration=12mo` → capex appears only in year 2 pro forma row. Confirmed by `test_renovation_capex_in_correct_years`. |
+| Known Answers | ✅ pass | `rent_bump=$200/mo, completion_year=2` → rent_per_unit in year 3 exceeds year 2 by $200. Confirmed by `test_rent_bump_applied_after_completion`. |
+| Reasonableness | ✅ pass | Payback period = total_cost / annual_NOI_lift > 0 for valid renovation. Confirmed by `test_payback_period_positive`. |
+| Edge Cases | ✅ pass | `enable_renovation=False` → zero impact on BTCF and NOI vs baseline. Confirmed by `test_renovation_disabled_no_impact`. |
+| Edge Cases | ✅ pass | `renovation_budget=0` → `total_renovation_cost=0`, `reno_capex_by_year={}`, no rows affected. |
+| BTCF Deduction | ✅ pass | BTCF lower in capex years vs adjacent non-capex years. Confirmed by `test_btcf_reduced_during_construction`. |
+| Test Coverage | ✅ pass | 5 unit tests in `tests/test_financial_model.py::TestRenovationModeling`. All 5 passing. |
+
+---
+
 ## Open Validation Items
 
 - [ ] Walk Score API — key pending, end-to-end test pending (requires peterjohn1298.github.io domain registration). Fallback UI card and graceful degradation confirmed working.
@@ -184,7 +201,8 @@ _DRIVER Validate stage: Cross-checking our instruments._
 ---
 
 _Last updated: 2026-02-27_
-_Tests: 152 passing / 0 failing — CI green on GitHub Actions_
-_All 11 sections complete. DRIVER framework fully applied._
+_Tests: 157 passing / 0 failing — CI green on GitHub Actions_
+_All 11 sections + value-add renovation complete. DRIVER framework fully applied._
 _CI/CD: Render deploy hook configured. Auto-deploy active on master push._
 _Professor feedback (2026-02-27): Cholesky MC, real transaction data, expanded waterfall/scenario/MC tests, Walk Score recommendation signal — all implemented and validated._
+_Value-add renovation (2026-02-27): renovation budget/contingency, rent bump, capex schedule, payback period — implemented and validated._

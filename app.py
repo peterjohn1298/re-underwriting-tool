@@ -98,6 +98,13 @@ def _parse_form(form) -> DealInputs:
         lp_equity_pct=_f(form.get("lp_equity_pct"), 90) / 100,
         preferred_return=_f(form.get("preferred_return"), 8) / 100,
         promote_pct=_f(form.get("promote_pct"), 20) / 100,
+        # Value-add renovation
+        enable_renovation=form.get("enable_renovation") == "on",
+        renovation_budget=_f(form.get("renovation_budget"), 0),
+        renovation_rent_bump=_f(form.get("renovation_rent_bump"), 0),
+        renovation_start_year=int(_f(form.get("renovation_start_year"), 1)),
+        renovation_duration_months=int(_f(form.get("renovation_duration_months"), 12)),
+        renovation_contingency_pct=_f(form.get("renovation_contingency_pct"), 10) / 100,
     )
 
     # Parse unit mix; if provided, override blended in_place_rent / market_rent
@@ -659,7 +666,8 @@ def results(job_id):
                            ai_memo=job.get("ai_memo"),
                            unit_mix=job.get("unit_mix"),
                            waterfall=job.get("waterfall"),
-                           scenarios=job.get("scenarios"))
+                           scenarios=job.get("scenarios"),
+                           renovation=job["results"].get("renovation"))
 
 
 @app.route("/api/results/<job_id>")

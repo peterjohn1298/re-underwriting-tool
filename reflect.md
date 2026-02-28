@@ -157,5 +157,21 @@ Feedback received from MGMT 69000 instructor (grade: 97.5 / A). Four improvement
 
 ---
 
+## Value-Add Renovation Feature (2026-02-27)
+
+New modeling capability added for value-add acquisition deals:
+
+| Item | What Was Built |
+|------|---------------|
+| Renovation inputs | Budget, contingency %, rent bump/unit, construction start year, duration |
+| Capex schedule | Spread evenly across construction years; deducted from BTCF |
+| Rent bump | Applied to every unit post-completion year |
+| Renovation metrics | Pre/post NOI, annual NOI lift, payback period (total cost ÷ NOI lift) |
+| UI | Collapsible form section with JS toggle; renovation impact card on results page |
+| Pro forma | `renovation_capex` row shown in pro forma table during construction years |
+| Tests | 5 new unit tests in `TestRenovationModeling` — 157 total, all passing |
+
+---
+
 _Last updated: 2026-02-27_
-_Project complete: 11/11 sections, 152 tests, CI/CD live, Render deployed_
+_Project complete: 11/11 sections + value-add renovation, 157 tests, CI/CD live, Render deployed_

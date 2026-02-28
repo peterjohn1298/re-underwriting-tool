@@ -241,6 +241,14 @@
                                     <small class="text-muted d-block">Models LP vs GP distributions with preferred return</small>
                                 </label>
                             </div>
+                            <div class="form-check form-switch">
+                                <input class="form-check-input" type="checkbox" name="enable_renovation" id="enableRenovation"
+                                       onchange="toggleRenovation(this.checked)">
+                                <label class="form-check-label" for="enableRenovation">
+                                    <i class="bi bi-hammer"></i> Value-Add Renovation
+                                    <small class="text-muted d-block">Models renovation spend, rent bump, and payback period</small>
+                                </label>
+                            </div>
                         </div>
                     </div>
 
@@ -262,6 +270,47 @@
                                 <label class="form-label">GP Promote Share (%)</label>
                                 <input type="number" class="form-control" name="promote_pct" value="20" min="0" max="50" step="5">
                                 <small class="text-muted">GP's % of residual above pref</small>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Renovation Parameters (hidden until toggled) -->
+                    <div id="renovationParams" class="mt-3 p-3 border border-secondary rounded" style="display:none;">
+                        <h6 class="text-gold mb-3"><i class="bi bi-hammer me-2"></i>Value-Add Renovation</h6>
+                        <div class="row g-3">
+                            <div class="col-md-4">
+                                <label class="form-label">Renovation Budget ($)</label>
+                                <input type="number" class="form-control renovation-input" name="renovation_budget" value="0" min="0" step="50000">
+                                <small class="text-muted">Total hard cost budget</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Contingency (%)</label>
+                                <input type="number" class="form-control renovation-input" name="renovation_contingency_pct" value="10" min="0" max="30" step="1">
+                                <small class="text-muted">Added to budget (default 10%)</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Rent Bump per Unit ($/mo)</label>
+                                <input type="number" class="form-control renovation-input" name="renovation_rent_bump" value="0" min="0" step="25">
+                                <small class="text-muted">Added to rent post-renovation</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Construction Start Year</label>
+                                <select class="form-select renovation-input" name="renovation_start_year">
+                                    <option value="1" selected>Year 1</option>
+                                    <option value="2">Year 2</option>
+                                    <option value="3">Year 3</option>
+                                </select>
+                                <small class="text-muted">When construction begins</small>
+                            </div>
+                            <div class="col-md-4">
+                                <label class="form-label">Construction Duration</label>
+                                <select class="form-select renovation-input" name="renovation_duration_months">
+                                    <option value="6">6 months</option>
+                                    <option value="12" selected>12 months</option>
+                                    <option value="18">18 months</option>
+                                    <option value="24">24 months</option>
+                                </select>
+                                <small class="text-muted">Length of construction period</small>
                             </div>
                         </div>
                     </div>
@@ -409,6 +458,11 @@
 <script>
 function toggleWaterfall(show) {
     document.getElementById('waterfallParams').style.display = show ? 'block' : 'none';
+}
+
+function toggleRenovation(show) {
+    document.getElementById('renovationParams').style.display = show ? 'block' : 'none';
+    document.querySelectorAll('.renovation-input').forEach(el => el.disabled = !show);
 }
 
 // Unit mix live calculations
