@@ -624,6 +624,16 @@ with tabs[4]:
                 st.markdown("**Top Valuation Drivers**")
                 for feat in features[:5]:
                     st.caption(f"• {feat}")
+
+            # Data source label — required per professor feedback
+            data_source = ml.get("data_source", "")
+            if data_source == "real_transactions":
+                st.success("**Training data:** Real NCREIF-calibrated transactions")
+            elif data_source == "synthetic_calibrated":
+                st.warning("**Training data:** Synthetic (calibrated to FRED/Census macro indicators) — not real transaction records")
+            confidence_note = ml.get("confidence_note", "")
+            if confidence_note:
+                st.caption(f"ℹ️ {confidence_note}")
         elif ml.get("error"):
             st.warning(f"ML valuation unavailable: {ml['error']}")
         else:
