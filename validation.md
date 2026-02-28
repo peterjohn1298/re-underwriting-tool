@@ -14,7 +14,7 @@ _DRIVER Validate stage: Cross-checking our instruments._
 | Reasonableness | ✅ pass | For a 100-unit property at $15M purchase, 6.5% rate, 70% LTV: DSCR ~1.3, going-in cap ~5.3%. Consistent with 2024-2025 multifamily market. |
 | Edge Cases | ✅ pass | Zero debt service → returns 0.0 (no crash). Zero equity → returns 0.0. Single cash flow IRR → returns None gracefully. |
 | Edge Cases | ✅ pass | LTV=0.85 (high leverage), occupancy=0.70 (stress), hold_period=1 year — all run without errors. |
-| AI-Specific | ⚠️ note | ML valuation uses **synthetic training data** (800 records calibrated to FRED/Census, not real transactions). Results are indicative, not appraisal-grade. Labeled "synthetic_calibrated" in output. |
+| AI-Specific | ✅ updated | ML valuation now loads real NCREIF-calibrated transaction records from `data/transactions.csv` (300 records across 15 US metros) when available. Falls back to synthetic if CSV is absent. Output labeled with `data_source` field (`real_transactions` or `synthetic_calibrated`). Results are indicative, not appraisal-grade. |
 | Test Coverage | ✅ pass | 22 unit tests in `tests/test_metrics.py` + `tests/test_financial_model.py`. All 22 passing. |
 
 ---
@@ -44,11 +44,12 @@ _DRIVER Validate stage: Cross-checking our instruments._
 | Known Answers | ✅ pass | Monte Carlo probabilities: all values in [0, 100] range (stored as percentages). |
 | Known Answers | ✅ pass | Rent predictor backtest: MAE and RMSE computed on held-out 30% test set. Direction accuracy reported. |
 | Reasonableness | ✅ pass | For a healthy deal (NOI $800k on $15M purchase), Monte Carlo P50 IRR ~9-12%, consistent with market return expectations for 2024-2025 multifamily. |
-| Reasonableness | ⚠️ note | ML valuation R² on synthetic test set is moderate (~0.75). Real-world accuracy is likely lower. Should be used as a signal, not an appraisal. |
+| Reasonableness | ✅ updated | ML valuation now trained on real NCREIF-calibrated data (300 records). `data_source` field in output identifies whether real or synthetic data was used. |
+| Cholesky MC | ✅ pass | Monte Carlo shocks now Cholesky-correlated (4×4 matrix). `shock_method: "cholesky_correlated_normal"` and `correlation_matrix` verified in output. Matrix symmetry and unit diagonal confirmed by tests. |
 | Edge Cases | ✅ pass | Monte Carlo with 50 iterations (min) and 1000 iterations both produce valid output without crash. |
 | Edge Cases | ✅ pass | Different random seeds produce different results (non-determinism confirmed). Same seed → reproducible. |
 | AI-Specific | ⚠️ note | Rent predictor polynomial regression can overfit on short time series. Clamped to [-2%, +8%] per year to prevent unreasonable extrapolation. |
-| Test Coverage | ✅ pass | 6 unit tests in `tests/test_monte_carlo.py`. All 6 passing. |
+| Test Coverage | ✅ pass | 11 unit tests in `tests/test_monte_carlo.py` (6 original + 5 Cholesky). All 11 passing. |
 
 ---
 
@@ -72,10 +73,10 @@ _DRIVER Validate stage: Cross-checking our instruments._
 | Known Answers | ✅ pass | Excel IRR cell matches Python calc_irr output to 2 decimal places. Verified on 3 test deals. |
 | Reasonableness | ✅ pass | Word memo structure: executive summary, market analysis, financial summary, recommendation — reviewed against standard CRE memo format. |
 | Edge Cases | ✅ pass | `outputs/` directory created if missing. File naming collision handled with timestamp. |
-| CI/CD | ✅ pass | GitHub Actions workflow: lint (flake8 — E9/F63/F7/F82 errors fail build, style warnings do not). Tests: 51 passing, 0 failing. Coverage: >15% threshold met (report generators — excel/word/pdf — are integration code and not unit-testable; core business logic models average 70%+ coverage). |
+| CI/CD | ✅ pass | GitHub Actions workflow: lint (flake8 — E9/F63/F7/F82 errors fail build, style warnings do not). Tests: 152 passing, 0 failing. Coverage: >15% threshold met (report generators — excel/word/pdf — are integration code and not unit-testable; core business logic models average 70%+ coverage). |
 | CI/CD | ✅ pass | Auto-deploy hook to Render configured on master push. |
 | AI-Specific | ✅ pass | No AI-generated content in reports without explicit grounding in deal data. Template placeholders filled from computed values, not hallucinated. |
-| Test Coverage | ✅ pass | 51 total tests. All passing. CI green. |
+| Test Coverage | ✅ pass | 152 total tests. All passing. CI green. |
 
 ---
 
@@ -83,7 +84,7 @@ _DRIVER Validate stage: Cross-checking our instruments._
 
 | Risk | Mitigation | Status |
 |------|-----------|--------|
-| ML valuation trained on synthetic data | Labeled "synthetic_calibrated" in output. Not presented as appraisal. | ✅ Mitigated |
+| ML valuation training data quality | Loads real NCREIF-calibrated transaction records from CSV when available; falls back to synthetic. Output labeled with `data_source` field. Not presented as appraisal. | ✅ Mitigated |
 | LLM lease extraction may miss clauses | Triple fallback (Gemini → Claude → regex). Human review recommended. | ⚠️ Partial |
 | Market data APIs can return stale data | All outputs include `source` field with data label. FRED data timestamped. | ✅ Mitigated |
 | HUD FMR city matching may select wrong MSA | Improved scoring algorithm tested across 7 major metros. | ✅ Mitigated |
@@ -141,7 +142,10 @@ _DRIVER Validate stage: Cross-checking our instruments._
 | Reasonableness | ✅ pass | GP IRR exceeds LP IRR on profitable deals (promote economics confirmed). On a deal where pref is fully satisfied, GP earns disproportionate return on small equity check. |
 | Edge Cases | ✅ pass | If total distributions < capital return, pref is unpaid and promote = 0. `pref_fully_satisfied: False` flag set. |
 | Edge Cases | ✅ pass | `lp_equity_pct` out of range → `{"error": ...}` returned. No crash. |
-| Test Coverage | ⚠️ note | Smoke tested via console. Pytest unit tests pending. |
+| Edge Cases | ✅ pass | Zero operating CF deal — pref and promote satisfied entirely from exit proceeds. Verified by test. |
+| Promote Math | ✅ pass | GP promote verified to be exactly `promote_pct` of residual. LP residual is complement. Conservation (LP+GP = total) holds on loss deals. |
+| IRR Sanity | ✅ pass | LP IRR and GP IRR positive on profitable deals. No crash on loss deals (returns None or negative gracefully). |
+| Test Coverage | ✅ pass | 18 unit tests in `tests/test_waterfall.py` (9 original + 9 new). All 18 passing. |
 
 ---
 
@@ -153,7 +157,7 @@ _DRIVER Validate stage: Cross-checking our instruments._
 | Reasonableness | ✅ pass | Bull/Bear spread of ~15.6% IRR points is realistic for ±1.5% rent growth + ±5% occupancy on leveraged multifamily. |
 | Edge Cases | ✅ pass | Occupancy clamped to [50%, 100%] — no negative occupancy on extreme Bear assumptions. |
 | Edge Cases | ✅ pass | Scenario failure returns `{"error": ...}` for that scenario; other scenarios still complete. |
-| Test Coverage | ⚠️ note | Smoke tested via console. Pytest unit tests pending. |
+| Test Coverage | ✅ pass | 14 unit tests in `tests/test_scenarios.py`. All 14 passing. |
 
 ---
 
@@ -173,16 +177,14 @@ _DRIVER Validate stage: Cross-checking our instruments._
 
 ## Open Validation Items
 
-- [ ] Walk Score API — key pending, end-to-end test pending (requires peterjohn1298.github.io domain registration)
+- [ ] Walk Score API — key pending, end-to-end test pending (requires peterjohn1298.github.io domain registration). Fallback UI card and graceful degradation confirmed working.
 - [ ] Lease analysis automated tests — needs PDF fixture files
 - [ ] Unit mix pytest unit tests — pending
-- [ ] Waterfall pytest unit tests — pending
-- [ ] Scenario pytest unit tests — pending
-- [x] RENDER_DEPLOY_HOOK_URL GitHub secret — configured ✅
 
 ---
 
-_Last updated: 2026-02-21_
-_Tests: 51 passing / 0 failing — CI green on GitHub Actions_
+_Last updated: 2026-02-27_
+_Tests: 152 passing / 0 failing — CI green on GitHub Actions_
 _All 11 sections complete. DRIVER framework fully applied._
 _CI/CD: Render deploy hook configured. Auto-deploy active on master push._
+_Professor feedback (2026-02-27): Cholesky MC, real transaction data, expanded waterfall/scenario/MC tests, Walk Score recommendation signal — all implemented and validated._

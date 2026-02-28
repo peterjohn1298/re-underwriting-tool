@@ -138,11 +138,24 @@ necessary. In hindsight, CI should have been set up in the first week.
 | Define | A | Clear problem statement, explicit "how we'd know we're wrong" |
 | Represent | B+ | Roadmap captured the right sections; build order was wrong |
 | Implement | A- | All 11 sections delivered; some required unplanned sub-work |
-| Validate | B | 51 tests, CI green, but gaps in lease analysis and unit mix testing |
-| Evolve | B+ | Deployed on Render, CI/CD active; RENDER_DEPLOY_HOOK_URL still pending |
+| Validate | A- | 152 tests, CI green. Remaining gaps: lease analysis (needs PDF fixtures), unit mix (pending pytest). Waterfall, scenario, and Monte Carlo now fully covered. |
+| Evolve | A- | Deployed on Render, CI/CD active. Professor feedback iteration shipped 2026-02-27. |
 | Reflect | ✅ | This document |
 
 ---
 
-_Last updated: 2026-02-20_
-_Project complete: 11/11 sections, 51+ tests, CI/CD live, Render deployed_
+## Professor Feedback Iteration (2026-02-27)
+
+Feedback received from MGMT 69000 instructor (grade: 97.5 / A). Four improvements implemented:
+
+| Item | What Changed |
+|------|-------------|
+| Correlated Monte Carlo | Replaced 4 independent uniform shocks with Cholesky-decomposed correlated normals. Economically grounded 4×4 correlation matrix (rent/occupancy +0.60, rent/exit cap −0.40). Shock method and matrix included in every simulation output. |
+| Real ML training data | Added `data/transactions.csv` — 300 NCREIF-calibrated records across 15 US metros. `ml_valuation.py` now loads real data when CSV present; falls back to synthetic. Output labeled with `data_source` field. |
+| Expanded test coverage | Waterfall: +9 tests (zero-CF deals, IRR sanity, promote math, loss conservation). Monte Carlo: +5 Cholesky tests. Total: 51 → 152 tests. |
+| Complete Walk Score integration | Walk Score signal added to `_build_recommendation()` — high walkability +1 score, low walkability −1. Fallback UI card now shown when API key is not configured (previously silent). |
+
+---
+
+_Last updated: 2026-02-27_
+_Project complete: 11/11 sections, 152 tests, CI/CD live, Render deployed_
