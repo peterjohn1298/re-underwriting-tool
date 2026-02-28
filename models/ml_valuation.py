@@ -56,6 +56,7 @@ class PropertyValuationModel:
         self.test_mae = None
         self.test_mape = None
         self.data_source = "synthetic"  # updated in train()
+        self.n_training_records = 0
 
     # ------------------------------------------------------------------
     # Real transaction data loader
@@ -222,6 +223,7 @@ class PropertyValuationModel:
                 df = self._generate_training_data(market_data)
                 self.data_source = "synthetic_calibrated"
                 logger.info(f"Training on {len(df)} synthetic records (no real data found)")
+            self.n_training_records = len(df)
 
             X = df[self.FEATURES]
             y = df["value_per_unit"]
@@ -362,7 +364,7 @@ class PropertyValuationModel:
                 "features_used": len(self.FEATURES),
                 "confidence_note": (
                     (
-                        f"Model trained on {len(df) if 'df' in dir() else 'N/A'} real NCREIF-calibrated "
+                        f"Model trained on {self.n_training_records} real NCREIF-calibrated "
                         f"transaction records across 15 US metros using {len(self.FEATURES)} features. "
                     ) if self.data_source == "real_transactions" else (
                         f"Model trained on synthetic records calibrated to real FRED/Census macro indicators "
