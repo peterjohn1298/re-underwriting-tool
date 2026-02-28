@@ -71,6 +71,7 @@ waterfall  = R.get("waterfall") or {}
 ai_memo    = R.get("ai_memo") or {}
 unit_mix   = R.get("unit_mix") or {}
 sensitivity = R.get("sensitivity") or {}
+renovation = pro_forma.get("renovation") or {}
 regime     = R.get("regime") or {}
 deal_obj   = R.get("deal")
 excel_path = R.get("excel_path")
@@ -195,6 +196,7 @@ tabs = st.tabs([
     "📄 Lease Analysis",
     "🤖 AI Memo",
     "🌊 Waterfall",
+    "🔨 Renovation",
     "⬇️ Downloads",
 ])
 
@@ -939,8 +941,53 @@ with tabs[9]:
         st.info("Enable LP/GP Waterfall on the input form to see distribution analysis.")
 
 
-# ── Tab 10: Downloads ─────────────────────────────────────────────────────────
+# ── Tab 10: Renovation ────────────────────────────────────────────────────────
 with tabs[10]:
+    st.subheader("Value-Add Renovation Analysis")
+    if renovation and renovation.get("enabled"):
+        import pandas as pd
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Total Cost (w/ contingency)",
+                  _dollar(renovation.get("total_cost")))
+        r2.metric("Rent Bump / Unit",
+                  f"${renovation.get('rent_bump_per_unit', 0):,.0f}/mo")
+        r3.metric("Annual NOI Lift",
+                  _dollar(renovation.get("annual_noi_lift")))
+        r4.metric("Payback Period",
+                  f"{renovation.get('payback_years')} yrs"
+                  if renovation.get("payback_years") else "—")
+
+        st.markdown("---")
+        rn_l, rn_r = st.columns(2)
+
+        with rn_l:
+            st.markdown("**NOI Impact**")
+            noi_rows = [
+                {"Metric": f"Pre-Renovation NOI (Year {max(1, renovation.get('completion_year', 2) - 1)})",
+                 "Value": _dollar(renovation.get("pre_renovation_noi"))},
+                {"Metric": f"Post-Renovation NOI (Year {renovation.get('completion_year', 2) + 1})",
+                 "Value": _dollar(renovation.get("post_renovation_noi"))},
+                {"Metric": "Completion Year",
+                 "Value": f"Year {renovation.get('completion_year', '—')}"},
+            ]
+            st.dataframe(pd.DataFrame(noi_rows), use_container_width=True, hide_index=True)
+
+        with rn_r:
+            st.markdown("**Capex Schedule**")
+            capex_by_year = renovation.get("capex_by_year", {})
+            if capex_by_year:
+                capex_rows = [{"Year": f"Year {yr}", "Capex Spend": _dollar(amt)}
+                              for yr, amt in sorted(capex_by_year.items())]
+                capex_rows.append({"Year": "Total", "Capex Spend": _dollar(renovation.get("total_cost"))})
+                st.dataframe(pd.DataFrame(capex_rows), use_container_width=True, hide_index=True)
+            else:
+                st.caption("No capex within hold period.")
+    else:
+        st.info("Enable Value-Add Renovation on the input form to see renovation analysis.")
+
+
+# ── Tab 11: Downloads ─────────────────────────────────────────────────────────
+with tabs[11]:
     st.subheader("Download Reports")
     dl1, dl2, dl3 = st.columns(3)
 

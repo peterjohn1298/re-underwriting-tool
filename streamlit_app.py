@@ -112,6 +112,13 @@ DEMO_VALUES = {
     "override_repairs":           0.0,
     "override_general_admin":     0.0,
     "override_other_expenses":    0.0,
+    # Renovation (off for Demo 1 — already stabilised)
+    "enable_renovation":          False,
+    "renovation_budget":          0.0,
+    "renovation_rent_bump":       0.0,
+    "renovation_start_year":      1,
+    "renovation_duration_months": 12,
+    "renovation_contingency_pct": 10.0,
 }
 
 # ── Demo values #2 (Phoenix, AZ — 80-unit Value-Add Class C) ─────────────────
@@ -159,6 +166,13 @@ DEMO_VALUES_2 = {
     "override_repairs":           0.0,
     "override_general_admin":     0.0,
     "override_other_expenses":    0.0,
+    # Renovation — Demo 2 is a value-add gut renovation (showcase the feature)
+    "enable_renovation":          True,
+    "renovation_budget":          1_200_000.0,   # $15k/unit × 80 units
+    "renovation_rent_bump":       300.0,          # $300/mo post-reno bump
+    "renovation_start_year":      1,
+    "renovation_duration_months": 18,
+    "renovation_contingency_pct": 10.0,
 }
 
 # ── Demo values #3 (Miami, FL — 150-unit Class A Core) ───────────────────────
@@ -206,6 +220,13 @@ DEMO_VALUES_3 = {
     "override_repairs":           0.0,
     "override_general_admin":     0.0,
     "override_other_expenses":    0.0,
+    # Renovation (off for Demo 3 — Class A core, no reno needed)
+    "enable_renovation":          False,
+    "renovation_budget":          0.0,
+    "renovation_rent_bump":       0.0,
+    "renovation_start_year":      1,
+    "renovation_duration_months": 12,
+    "renovation_contingency_pct": 10.0,
 }
 
 PROPERTY_TYPES = [
@@ -537,6 +558,9 @@ with st.form("deal_form"):
             enable_waterfall = st.checkbox(
                 "Enable LP/GP Waterfall", value=False,
                 help="Calculate LP preferred return and GP promote from deal cash flows")
+            enable_renovation = st.checkbox(
+                "Enable Value-Add Renovation", value=d.get("enable_renovation", False),
+                help="Model renovation spend, rent bump post-construction, and payback period")
         with c8:
             lease_files = st.file_uploader(
                 "Upload Lease PDFs (optional)",
@@ -614,6 +638,36 @@ with st.form("deal_form"):
             promote_pct = st.number_input("GP Promote (%)", min_value=0.0, max_value=50.0,
                                            value=d.get("promote_pct", 20.0),
                                            step=5.0, format="%.0f")
+
+        st.markdown('<div class="section-header">Value-Add Renovation</div>', unsafe_allow_html=True)
+        st.caption("Parameters used when 'Enable Value-Add Renovation' is checked on the AI/ML tab.")
+        c_rn1, c_rn2, c_rn3 = st.columns(3)
+        with c_rn1:
+            renovation_budget = st.number_input(
+                "Renovation Budget ($)", min_value=0.0,
+                value=d.get("renovation_budget", 0.0),
+                step=50_000.0, format="%.0f",
+                help="Total hard cost budget before contingency")
+            renovation_contingency_pct = st.number_input(
+                "Contingency (%)", min_value=0.0, max_value=30.0,
+                value=d.get("renovation_contingency_pct", 10.0),
+                step=1.0, format="%.0f")
+        with c_rn2:
+            renovation_rent_bump = st.number_input(
+                "Rent Bump per Unit ($/mo)", min_value=0.0,
+                value=d.get("renovation_rent_bump", 0.0),
+                step=25.0, format="%.0f",
+                help="Added to each unit's rent after construction completes")
+            renovation_start_year = st.selectbox(
+                "Construction Start Year",
+                options=[1, 2, 3],
+                index=d.get("renovation_start_year", 1) - 1)
+        with c_rn3:
+            renovation_duration_months = st.selectbox(
+                "Construction Duration",
+                options=[6, 12, 18, 24],
+                index=[6, 12, 18, 24].index(d.get("renovation_duration_months", 12)),
+                format_func=lambda x: f"{x} months")
 
         st.markdown('<div class="section-header">Expense Overrides (leave at 0 to auto-derive)</div>',
                     unsafe_allow_html=True)
@@ -708,6 +762,12 @@ if submitted:
         lp_equity_pct=float(lp_equity_pct) / 100.0,
         preferred_return=float(preferred_return) / 100.0,
         promote_pct=float(promote_pct) / 100.0,
+        enable_renovation=bool(enable_renovation),
+        renovation_budget=float(renovation_budget),
+        renovation_rent_bump=float(renovation_rent_bump),
+        renovation_start_year=int(renovation_start_year),
+        renovation_duration_months=int(renovation_duration_months),
+        renovation_contingency_pct=float(renovation_contingency_pct) / 100.0,
     )
 
     # Parse and apply unit mix
