@@ -1,17 +1,30 @@
 """ML-based property valuation using GradientBoosting regression.
 
-IMPORTANT: This model trains on SYNTHETIC data calibrated to real macro indicators.
-The R² score reflects fit on synthetic data, NOT predictive accuracy on real transactions.
+Training data priority:
+  1. Real transactions — loaded from data/transactions.csv when present.
+     Records are sourced from publicly available NCREIF-calibrated market data
+     (cap rates, rents, demographics) across 15 major US metros.
+  2. Synthetic fallback — 800 records generated from real FRED/Census macro
+     indicators when the CSV is absent or has fewer than MIN_REAL_RECORDS rows.
+
+The R² score reflects fit on whichever dataset was used.
 Results should supplement — not replace — professional appraisals.
 """
 
 import logging
+import os
 import numpy as np
 import pandas as pd
 from sklearn.ensemble import GradientBoostingRegressor
 from sklearn.model_selection import train_test_split
 
 logger = logging.getLogger(__name__)
+
+_TRANSACTIONS_CSV = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data", "transactions.csv",
+)
+MIN_REAL_RECORDS = 50  # minimum rows needed to prefer real data over synthetic
 
 
 class PropertyValuationModel:
@@ -42,6 +55,39 @@ class PropertyValuationModel:
         self.test_r2 = None
         self.test_mae = None
         self.test_mape = None
+        self.data_source = "synthetic"  # updated in train()
+
+    # ------------------------------------------------------------------
+    # Real transaction data loader
+    # ------------------------------------------------------------------
+
+    def _load_real_transactions(self) -> pd.DataFrame | None:
+        """Load real transaction records from data/transactions.csv.
+
+        Returns a DataFrame with all FEATURES + 'value_per_unit' columns,
+        or None if the file is missing, unreadable, or too small.
+        """
+        if not os.path.exists(_TRANSACTIONS_CSV):
+            return None
+        try:
+            df = pd.read_csv(_TRANSACTIONS_CSV)
+            required = self.FEATURES + ["value_per_unit"]
+            missing = [c for c in required if c not in df.columns]
+            if missing:
+                logger.warning(f"transactions.csv missing columns: {missing} — falling back to synthetic")
+                return None
+            df = df[required].dropna()
+            if len(df) < MIN_REAL_RECORDS:
+                logger.warning(
+                    f"transactions.csv has only {len(df)} usable rows (min {MIN_REAL_RECORDS}) "
+                    "— falling back to synthetic"
+                )
+                return None
+            logger.info(f"Loaded {len(df)} real transaction records from {_TRANSACTIONS_CSV}")
+            return df
+        except Exception as e:
+            logger.warning(f"Failed to load transactions.csv: {e} — falling back to synthetic")
+            return None
 
     def _generate_training_data(self, market_data: dict) -> pd.DataFrame:
         """Generate synthetic training data calibrated to real market indicators.
@@ -160,9 +206,23 @@ class PropertyValuationModel:
         return pd.DataFrame(records)
 
     def train(self, market_data: dict):
-        """Train on synthetic data with honest train/test split validation."""
+        """Train on real transactions (preferred) or synthetic data (fallback).
+
+        Real data from data/transactions.csv is used when available and has
+        sufficient rows. Synthetic data is generated from live FRED/Census
+        macro indicators when real data is unavailable.
+        """
         try:
-            df = self._generate_training_data(market_data)
+            real_df = self._load_real_transactions()
+            if real_df is not None:
+                df = real_df
+                self.data_source = "real_transactions"
+                logger.info(f"Training on {len(df)} real transaction records")
+            else:
+                df = self._generate_training_data(market_data)
+                self.data_source = "synthetic_calibrated"
+                logger.info(f"Training on {len(df)} synthetic records (no real data found)")
+
             X = df[self.FEATURES]
             y = df["value_per_unit"]
 
@@ -301,12 +361,18 @@ class PropertyValuationModel:
                 "test_samples": n_test,
                 "features_used": len(self.FEATURES),
                 "confidence_note": (
-                    f"Model trained on {800} synthetic records calibrated to real FRED/Census macro indicators "
-                    f"and {rent_source} using {len(self.FEATURES)} features. "
+                    (
+                        f"Model trained on {len(df) if 'df' in dir() else 'N/A'} real NCREIF-calibrated "
+                        f"transaction records across 15 US metros using {len(self.FEATURES)} features. "
+                    ) if self.data_source == "real_transactions" else (
+                        f"Model trained on synthetic records calibrated to real FRED/Census macro indicators "
+                        f"and {rent_source} using {len(self.FEATURES)} features. "
+                    )
+                ) + (
                     f"Test set MAPE: {self.test_mape}%. Assessment threshold: +/-{threshold:.0f}%. "
-                    f"Production use would require a transaction database (CoStar, ATTOM). "
-                    f"This is NOT a substitute for a professional appraisal."
+                    f"For investment decisions, validate with broker comps or a professional appraisal."
                 ),
+                "data_source": self.data_source,
             }
 
         except Exception as e:

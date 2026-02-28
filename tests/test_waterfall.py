@@ -4,6 +4,112 @@ from models.waterfall import run_waterfall, _safe_irr
 
 
 # ---------------------------------------------------------------------------
+# Additional coverage: zero-CF deals, IRR sanity, promote math
+# ---------------------------------------------------------------------------
+
+class TestWaterfallZeroOperatingCF:
+    """Deals where all value is realized at exit (no operating cash flows)."""
+
+    def test_pref_satisfied_from_exit_alone(self):
+        # Large exit with zero operating CFs — pref comes entirely from exit
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=1_000_000, annual_btcfs=[0] * 5,
+            exit_proceeds=2_000_000, hold_years=5,
+        )
+        assert result["pref_fully_satisfied"] is True
+
+    def test_lp_receives_capital_plus_pref_from_exit(self):
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=1_000_000, annual_btcfs=[0] * 5,
+            exit_proceeds=2_000_000, hold_years=5,
+        )
+        # LP must get at least capital + pref return
+        assert result["lp_total"] >= result["lp_return_of_capital"] + result["lp_pref_paid"]
+
+    def test_gp_earns_promote_on_zero_cf_deal(self):
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=1_000_000, annual_btcfs=[0] * 5,
+            exit_proceeds=2_000_000, hold_years=5,
+        )
+        assert result["gp_promote"] > 0
+
+
+class TestWaterfallIRRSanity:
+    """LP and GP IRR should be finite, real numbers on valid deals."""
+
+    def test_lp_irr_positive_on_profitable_deal(self):
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=1_000_000, annual_btcfs=[80_000] * 7,
+            exit_proceeds=1_400_000, hold_years=7,
+        )
+        assert result["lp_irr"] is not None
+        assert result["lp_irr"] > 0
+
+    def test_gp_irr_positive_on_profitable_deal(self):
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=1_000_000, annual_btcfs=[80_000] * 7,
+            exit_proceeds=1_400_000, hold_years=7,
+        )
+        assert result["gp_irr"] is not None
+        assert result["gp_irr"] > 0
+
+    def test_irr_returns_none_not_crash_on_loss_deal(self):
+        # Catastrophic deal — total return less than equity invested
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=5_000_000, annual_btcfs=[0] * 5,
+            exit_proceeds=1_000_000, hold_years=5,
+        )
+        # Should not raise; lp_irr may be negative or None but must not crash
+        assert "lp_irr" in result
+        assert "gp_irr" in result
+
+
+class TestWaterfallPromoteMath:
+    """Verify promote split is arithmetically correct."""
+
+    def test_promote_is_exact_pct_of_residual(self):
+        promote_pct = 0.20
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=promote_pct,
+            equity_invested=1_000_000, annual_btcfs=[80_000] * 7,
+            exit_proceeds=1_400_000, hold_years=7,
+        )
+        residual = result["lp_residual"] + result["gp_promote"]
+        if residual > 0:
+            actual_promote_pct = result["gp_promote"] / residual
+            assert actual_promote_pct == pytest.approx(promote_pct, rel=1e-3)
+
+    def test_lp_residual_is_complement_of_promote(self):
+        promote_pct = 0.30
+        result = run_waterfall(
+            lp_equity_pct=0.85, preferred_return=0.08, promote_pct=promote_pct,
+            equity_invested=2_000_000, annual_btcfs=[120_000] * 5,
+            exit_proceeds=3_500_000, hold_years=5,
+        )
+        residual = result["lp_residual"] + result["gp_promote"]
+        if residual > 0:
+            lp_pct = result["lp_residual"] / residual
+            assert lp_pct == pytest.approx(1 - promote_pct, rel=1e-3)
+
+    def test_total_equals_lp_plus_gp_on_loss_deal(self):
+        # Even on a losing deal, LP + GP totals must equal total distributions
+        result = run_waterfall(
+            lp_equity_pct=0.90, preferred_return=0.08, promote_pct=0.20,
+            equity_invested=3_000_000, annual_btcfs=[0] * 5,
+            exit_proceeds=1_500_000, hold_years=5,
+        )
+        assert (result["lp_total"] + result["gp_total"]) == pytest.approx(
+            result["total_distributions"], rel=1e-3
+        )
+
+
+# ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
 

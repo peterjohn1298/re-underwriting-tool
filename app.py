@@ -255,7 +255,10 @@ def _run_analysis(job_id: str, deal: DealInputs):
             monte_carlo = {"error": str(e)}
 
         # --- Integrated Recommendation (Fix #1) ---
-        recommendation = _build_recommendation(pro_forma, ml_valuation, lease_analysis, rent_prediction, monte_carlo)
+        recommendation = _build_recommendation(
+            pro_forma, ml_valuation, lease_analysis, rent_prediction, monte_carlo,
+            market_data=market_data,
+        )
 
         # --- Waterfall / LP-GP Promote ---
         waterfall = None
@@ -459,7 +462,7 @@ def _build_sensitivity(deal, pro_forma: dict) -> dict:
 
 def _build_recommendation(pro_forma: dict, ml_valuation=None,
                           lease_analysis=None, rent_prediction=None,
-                          monte_carlo=None) -> dict:
+                          monte_carlo=None, market_data=None) -> dict:
     """Build integrated recommendation using all available signals (Fix #1)."""
     m = pro_forma["metrics"]
     irr = m.get("levered_irr")
@@ -537,6 +540,24 @@ def _build_recommendation(pro_forma: dict, ml_valuation=None,
             score -= 1
         else:
             signals.append(("Monte Carlo", "NEUTRAL", mc_detail))
+
+    # 7. Walk Score signal — location quality affects tenant demand and rent growth
+    ws = (market_data or {}).get("walkscore", {}) if market_data else {}
+    if ws and ws.get("available"):
+        walk = ws.get("walk_score")
+        transit = ws.get("transit_score")
+        if walk is not None:
+            if walk >= 70:
+                signals.append(("Walk Score", "POSITIVE",
+                                 f"Walk Score {walk} ({ws.get('walk_label')}) — supports premium rents and tenant demand"))
+                score += 1
+            elif walk < 25:
+                signals.append(("Walk Score", "CAUTION",
+                                 f"Walk Score {walk} ({ws.get('walk_label')}) — car-dependency may limit tenant pool"))
+                score -= 1
+        if transit is not None and transit < 25:
+            signals.append(("Transit Score", "CAUTION",
+                             f"Transit Score {transit} ({ws.get('transit_label')}) — limited transit constrains renter demand"))
 
     # Final recommendation
     if score >= 2:

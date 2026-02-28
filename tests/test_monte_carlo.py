@@ -72,3 +72,43 @@ class TestMonteCarloSimulator:
         sim = MonteCarloSimulator(n_iterations=50, seed=42)
         result = sim.run(_make_deal(purchase_price=1_000_000, total_units=10), build_pro_forma)
         assert result is not None
+
+
+class TestMonteCarloCholesky:
+    """Verify Cholesky-correlated shock metadata is present and valid."""
+
+    def test_shock_method_is_cholesky(self):
+        sim = MonteCarloSimulator(n_iterations=100, seed=42)
+        result = sim.run(_make_deal(), build_pro_forma)
+        assert result.get("shock_method") == "cholesky_correlated_normal"
+
+    def test_correlation_matrix_in_result(self):
+        sim = MonteCarloSimulator(n_iterations=100, seed=42)
+        result = sim.run(_make_deal(), build_pro_forma)
+        corr = result.get("correlation_matrix")
+        assert corr is not None
+        assert "variables" in corr
+        assert "matrix" in corr
+        assert len(corr["variables"]) == 4
+        assert len(corr["matrix"]) == 4
+
+    def test_correlation_matrix_is_symmetric(self):
+        sim = MonteCarloSimulator(n_iterations=50, seed=42)
+        result = sim.run(_make_deal(), build_pro_forma)
+        matrix = result["correlation_matrix"]["matrix"]
+        for i in range(4):
+            for j in range(4):
+                assert matrix[i][j] == pytest.approx(matrix[j][i], abs=1e-9)
+
+    def test_correlation_diagonal_is_one(self):
+        sim = MonteCarloSimulator(n_iterations=50, seed=42)
+        result = sim.run(_make_deal(), build_pro_forma)
+        matrix = result["correlation_matrix"]["matrix"]
+        for i in range(4):
+            assert matrix[i][i] == pytest.approx(1.0, abs=1e-9)
+
+    def test_different_seeds_produce_different_distributions(self):
+        deal = _make_deal()
+        r1 = MonteCarloSimulator(n_iterations=200, seed=7).run(deal, build_pro_forma)
+        r2 = MonteCarloSimulator(n_iterations=200, seed=999).run(deal, build_pro_forma)
+        assert r1.get("mean_irr") != r2.get("mean_irr")

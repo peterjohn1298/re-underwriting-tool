@@ -1,7 +1,9 @@
 """Monte Carlo simulation for real estate investment returns.
 
 Randomizes key assumptions (rent growth, occupancy, exit cap, expense growth)
-and runs build_pro_forma() N times to produce an IRR distribution.
+using Cholesky-correlated normal shocks to capture realistic co-movement
+between market variables, then runs build_pro_forma() N times to produce
+an IRR distribution.
 """
 
 import logging
@@ -10,9 +12,35 @@ import numpy as np
 
 logger = logging.getLogger(__name__)
 
+# ---------------------------------------------------------------------------
+# Correlation matrix for the 4 shock variables:
+#   [0] rent_growth  [1] occupancy  [2] exit_cap_spread  [3] expense_growth
+#
+# Economic rationale:
+#   rent_growth ↔ occupancy     +0.60  tight markets lift both simultaneously
+#   rent_growth ↔ exit_cap      -0.40  rising rates compress growth AND widen caps
+#   rent_growth ↔ expense_growth +0.30 inflation epoch drives both
+#   occupancy   ↔ exit_cap      -0.30  high vacancy → investors demand higher cap
+#   occupancy   ↔ expense_growth +0.10 minimal direct link
+#   exit_cap    ↔ expense_growth +0.25 inflationary period lifts both rates and costs
+# ---------------------------------------------------------------------------
+_CORR = np.array([
+    [1.00,  0.60, -0.40,  0.30],
+    [0.60,  1.00, -0.30,  0.10],
+    [-0.40, -0.30,  1.00,  0.25],
+    [0.30,  0.10,  0.25,  1.00],
+])
+_CHOLESKY = np.linalg.cholesky(_CORR)  # Lower-triangular factor; computed once at import
+
 
 class MonteCarloSimulator:
-    """Monte Carlo simulation engine for RE underwriting."""
+    """Monte Carlo simulation engine for RE underwriting.
+
+    Shocks are generated as Cholesky-correlated standard normals and then
+    scaled to the desired per-variable range, so that e.g. a severe rent
+    growth shock co-occurs with a lower occupancy and a wider exit cap —
+    reflecting real-world macro co-movement.
+    """
 
     def __init__(self, n_iterations: int = 1000, seed: int = 42):
         self.n_iterations = n_iterations
@@ -27,10 +55,10 @@ class MonteCarloSimulator:
 
         Returns:
             Dict with IRR distribution, percentiles, probabilities,
-            histogram data, and summary statement.
+            histogram data, summary statement, and correlation metadata.
         """
         try:
-            np.random.seed(self.seed)
+            rng = np.random.default_rng(self.seed)
             irrs = []
             equity_multiples = []
             failed = 0
@@ -40,26 +68,30 @@ class MonteCarloSimulator:
             base_exit_spread = deal.exit_cap_rate_spread
             base_expense_growth = deal.expense_growth_rate
 
+            # --- Generate all correlated shocks up front via Cholesky ---
+            # Draw N×4 independent standard normals, then correlate
+            z = rng.standard_normal((self.n_iterations, 4))
+            correlated = z @ _CHOLESKY.T  # shape (N, 4), columns are correlated
+
+            # Scale each column to its shock range (±3σ ≈ bounds below)
+            # σ values chosen so 3σ hits the practical limit for each variable
+            growth_shocks = np.clip(correlated[:, 0] * 0.10, -0.30,  0.30)  # ±30% of base
+            occ_shocks    = np.clip(correlated[:, 1] * 0.010, -0.03,  0.03)  # ±3 pp
+            cap_shocks    = np.clip(correlated[:, 2] * 0.00167, -0.005, 0.005)  # ±50 bps
+            exp_shocks    = np.clip(correlated[:, 3] * 0.083, -0.25,  0.25)  # ±25% of base
+
             for i in range(self.n_iterations):
                 sim_deal = copy.deepcopy(deal)
 
-                # Randomize rent growth: ±30% of base
-                growth_shock = np.random.uniform(-0.30, 0.30)
-                sim_deal.revenue_growth_rate = max(0.0, base_growth * (1 + growth_shock))
+                sim_deal.revenue_growth_rate = max(0.0, base_growth * (1 + growth_shocks[i]))
                 # Clear variable growth so we use flat rate
                 sim_deal.yearly_revenue_growth = []
 
-                # Randomize occupancy: ±3 percentage points
-                occ_shock = np.random.uniform(-0.03, 0.03)
-                sim_deal.occupancy = max(0.60, min(0.99, base_occ + occ_shock))
+                sim_deal.occupancy = float(np.clip(base_occ + occ_shocks[i], 0.60, 0.99))
 
-                # Randomize exit cap spread: ±50bps
-                cap_shock = np.random.uniform(-0.0050, 0.0050)
-                sim_deal.exit_cap_rate_spread = max(0.0, base_exit_spread + cap_shock)
+                sim_deal.exit_cap_rate_spread = max(0.0, base_exit_spread + cap_shocks[i])
 
-                # Randomize expense growth: ±25% of base
-                exp_shock = np.random.uniform(-0.25, 0.25)
-                sim_deal.expense_growth_rate = max(0.0, base_expense_growth * (1 + exp_shock))
+                sim_deal.expense_growth_rate = max(0.0, base_expense_growth * (1 + exp_shocks[i]))
 
                 try:
                     result = build_pro_forma_fn(sim_deal)
@@ -147,6 +179,17 @@ class MonteCarloSimulator:
                 "summary": summary,
                 "mc_signal": mc_signal,
                 "mc_detail": mc_detail,
+                # Cholesky metadata for transparency
+                "shock_method": "cholesky_correlated_normal",
+                "correlation_matrix": {
+                    "variables": ["rent_growth", "occupancy", "exit_cap_spread", "expense_growth"],
+                    "matrix": _CORR.tolist(),
+                    "note": (
+                        "Cholesky-decomposed correlation matrix captures macro co-movement: "
+                        "rent growth and occupancy are positively correlated (+0.60); "
+                        "exit cap spread is negatively correlated with rent growth (-0.40)."
+                    ),
+                },
             }
 
         except Exception as e:

@@ -721,6 +721,7 @@
         {% set ws = market_data.get('walkscore', {}) if market_data else {} %}
         {% if ws and ws.get('available') %}
         <div class="card bg-dark-card mb-4">
+
             <div class="card-header bg-navy d-flex justify-content-between align-items-center">
                 <h6 class="mb-0"><i class="bi bi-signpost-split"></i> Location Scores
                     <span class="badge bg-success ms-2">Walk Score</span>
@@ -785,6 +786,27 @@
                 </div>
                 {% endif %}
                 <small class="text-muted d-block mt-2">Source: Walk Score API &mdash; <a href="{{ ws.walkscore_url }}" target="_blank" class="text-muted">View on WalkScore.com</a></small>
+            </div>
+        </div>
+        {% elif market_data %}
+        <div class="card bg-dark-card mb-4">
+            <div class="card-header bg-navy d-flex justify-content-between align-items-center">
+                <h6 class="mb-0"><i class="bi bi-signpost-split"></i> Location Scores
+                    <span class="badge bg-secondary ms-2">Walk Score</span>
+                </h6>
+            </div>
+            <div class="card-body">
+                <div class="alert alert-secondary py-2 mb-0">
+                    <i class="bi bi-info-circle me-2"></i>
+                    <small>
+                        Walk Score data unavailable.
+                        {% if ws.get('note') %}{{ ws.note }}{% else %}
+                        A property address is required and a <code>WALKSCORE_API_KEY</code> must be configured
+                        to retrieve walkability, transit, and bike scores.
+                        {% endif %}
+                        <a href="https://www.walkscore.com/professional/api.php" target="_blank" class="ms-1">Get a free API key.</a>
+                    </small>
+                </div>
             </div>
         </div>
         {% endif %}
