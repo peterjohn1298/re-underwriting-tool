@@ -131,7 +131,7 @@ assumption and corrected the AI's working model of the project.
 ## Entry 6 — Security Issue: Exposed API Key
 
 During file inspection the AI flagged that `streamlit_secrets_template.txt`
-contained a real Google API key (`GOOGLE_API_KEY_REDACTED`).
+contained a real Google API key (redacted — key has since been rotated).
 
 **My decision:**
 I directed the AI to check whether the key had ever been committed to GitHub
