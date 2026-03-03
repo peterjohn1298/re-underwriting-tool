@@ -317,6 +317,35 @@ be completed and added to both GitHub and SubStack before submission.
 
 ---
 
+## Entry 15 — ML Training Data Audit and Documentation
+
+**My prompt:**
+> "What part of the tool returns synthetic data?"
+> "Is this supposed to be synthetic from the perspective of the project?"
+> "Can this be fixed to accommodate my professor's requirements?"
+> "What do you suggest?"
+> "Yes go ahead. I just want it to be as substantiated as possible."
+
+**What the AI found:**
+Two components return synthetic or derived data: (1) the ML valuation model, trained on `data/transactions.csv` (labeled `NCREIF_calibrated`), and (2) the comparable sales fallback in `market_research.py` when RentCast is unavailable. Both are labeled in the output.
+
+The AI investigated whether real data could replace the synthetic CSV. It identified two free public sources — Freddie Mac Multifamily Loan Performance Data and HUD FHA Insured Multifamily Mortgages — and researched their actual field coverage. Finding: both datasets provide real property identifiers and loan terms, but **neither includes the operating metrics required as ML features** (NOI, cap rate, occupancy, in-place rent). These would still need to be derived, making the result only marginally more defensible than the current approach while introducing significant engineering risk before submission.
+
+**My decision:**
+> "What do you suggest?"
+
+After hearing both options — replace the data or document the constraint — I chose documentation. The AI substantiated the limitation in full across three DRIVER documents.
+
+**What the AI updated:**
+- `validation.md` — Added Section 13: ML Training Data Methodology with a full data provenance table, source-by-source breakdown, academic precedent citation, and validation checks
+- `validation.md` — Updated AI-Specific Risks row to reference the paywalled data constraint by name (NCREIF, CoStar, MSCI RCA), with cost figures
+- `reflect.md` — Updated "What the Plan Got Wrong" #5 and "What We'd Do Differently" #1 with full institutional data access context
+- `AI_LOG.md` — This entry
+
+**Key point:** I directed this audit. I decided documentation was more credible than a workaround. The AI built the substantiation — I judged that transparency about the data access constraint was the right answer for an academic submission.
+
+---
+
 ## Summary: What I Decided, What the AI Built
 
 | Decision | Made by |

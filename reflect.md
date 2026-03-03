@@ -54,10 +54,7 @@ The plan said "GitHub Actions CI/CD." In practice this required:
 - Working around Windows-specific encoding issues (`UnicodeEncodeError` on box-drawing chars in terminal output)
 
 ### 5. ML training data was always going to be synthetic
-The plan listed ML valuation as a feature without specifying the training data source.
-Real transaction data requires CoStar, MSCI, or broker APIs — all expensive and gated.
-The decision to use synthetic data calibrated to FRED/Census indicators was not in the original
-plan. It had to be documented explicitly as "synthetic_calibrated" to manage user expectations.
+The plan listed ML valuation as a feature without specifying the training data source. Real CRE transaction data (NCREIF Property Index, CoStar, MSCI Real Capital Analytics) is gated behind paid institutional subscriptions costing $12,000–$50,000+/year — inaccessible to independent researchers and students. Free public datasets exist (HUD FHA Insured Multifamily, Freddie Mac Multifamily Loan Performance Data) but contain only loan-level identifiers, not the operating metrics (NOI, cap rate, occupancy, in-place rent) needed as ML features. The decision to use macro-anchored synthetic data calibrated to verified government indicators (FRED, Census ACS, BLS) was not in the original plan — it was the only academically defensible alternative given the data access constraint. It had to be documented explicitly as `synthetic_calibrated` with full methodology transparency. This is a known limitation of CRE machine learning outside institutional settings.
 
 ### 6. Walk Score API signup required a public domain
 The plan assumed a standard API key signup. Walk Score requires a publicly accessible domain
@@ -91,10 +88,8 @@ IRR impact of changing rent growth or occupancy without re-running the full pipe
 
 ## What We'd Do Differently
 
-### 1. Start with real transaction data, even if limited
-Even 50 verified real transactions would be better than 800 synthetic ones for ML training.
-A v2 would source real data from CREXI or Loopnet scraping or open datasets (HUD LIHTC, etc.)
-before the ML model goes live.
+### 1. Resolve the training data constraint at the outset
+The ML model uses macro-anchored synthetic data because real CRE transaction data is paywalled. A v2 would address this at project start by: (a) applying for NCREIF academic access (available to affiliated university researchers), (b) using HUD LIHTC property-level data which includes some operating metrics, or (c) partnering with a brokerage for anonymized deal data. Even 50–100 verified real transactions would meaningfully improve the model's external validity. The current approach is the appropriate academic substitute, but it should be replaced as soon as institutional data access is available.
 
 ### 2. Database persistence from day one
 Currently deals are stored in-memory and lost on server restart. SQLite was added in Section 11,
@@ -173,5 +168,5 @@ New modeling capability added for value-add acquisition deals:
 
 ---
 
-_Last updated: 2026-02-27_
-_Project complete: 11/11 sections + value-add renovation, 157 tests, CI/CD live, Render deployed_
+_Last updated: 2026-03-02_
+_Project complete: 11/11 sections + value-add renovation, 157 tests, CI/CD live, Streamlit Community Cloud deployed_
